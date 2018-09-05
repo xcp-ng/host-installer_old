@@ -743,14 +743,19 @@ def select_guest_disks(answers):
     cbt = CheckboxTree(3, scroll)
     for (c_text, c_item) in entries:
         cbt.append(c_text, c_item, c_item in currently_selected)
-    txt = "Use EXT instead of LVM (leave unchecked if unsure)"
+    txt = "Use EXT instead of LVM for local storage repository"
     tb = Checkbox(txt, srtype == constants.SR_TYPE_EXT and 1 or 0)
-    
-    gf = GridFormHelp(tui.screen, 'Virtual Machine Storage', 'guestdisk:info', 1, 4)
+
+    explanations = Textbox(54, 2,
+                           "LVM: block based. May be faster. Thick provisioning.\n"
+                           "EXT: file based. May be slower. Thin provisioning.")
+
+    gf = GridFormHelp(tui.screen, 'Virtual Machine Storage', 'guestdisk:info', 1, 5)
     gf.add(text, 0, 0, padding = (0, 0, 0, 1))
     gf.add(cbt, 0, 1, padding = (0, 0, 0, 1))
-    gf.add(tb, 0, 2, padding = (0, 0, 0, 1))
-    gf.add(buttons, 0, 3, growx = 1)
+    gf.add(tb, 0, 2, padding = (0, 0, 0, 0))
+    gf.add(explanations, 0, 3, padding = (0, 0, 0, 1))
+    gf.add(buttons, 0, 4, growx = 1)
     gf.addHotKey('F5')
     
     tui.update_help_line([None, "<F5> more info"])
