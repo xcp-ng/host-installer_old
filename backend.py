@@ -110,6 +110,7 @@ def getPrepSequence(ans, interactive):
         Task(util.getUUID, As(ans), ['installation-uuid']),
         Task(util.getUUID, As(ans), ['control-domain-uuid']),
         Task(util.randomLabelStr, As(ans), ['disk-label-suffix']),
+        Task(diskutil.create_raid, A(ans, 'raid'), []),
         Task(inspectTargetDisk, A(ans, 'primary-disk', 'installation-to-overwrite', 'initial-partitions', 'preserve-first-partition', 'sr-on-primary', 'create-new-partitions'), ['target-boot-mode', 'boot-partnum', 'primary-partnum', 'backup-partnum', 'logs-partnum', 'swap-partnum', 'storage-partnum']),
         Task(selectPartitionTableType, A(ans, 'primary-disk', 'install-type', 'primary-partnum', 'create-new-partitions'), ['partition-table-type']),
         ]
@@ -1177,7 +1178,11 @@ def installBootLoader(mounts, disk, partition_table_type, boot_partnum, primary_
                 setEfiBootEntry(mounts, disk, boot_partnum, branding)
         else:
             if location == constants.BOOT_LOCATION_MBR:
-                installGrub2(mounts, disk, False)
+                if diskutil.is_raid(disk):
+                    for member in diskutil.getDeviceSlaves(disk):
+                        installGrub2(mounts, member, False)
+                else:
+                    installGrub2(mounts, disk, False)
             else:
                 installGrub2(mounts, root_partition, True)
 

@@ -165,6 +165,20 @@ def getDiskList():
 
     return disks
 
+def create_raid(configuration):
+    if configuration:
+        for raid_device, members in configuration.viewitems():
+            # allows for idempotence
+            if not os.path.exists(raid_device):
+                for dev in members:
+                    util.runCmd2(['mdadm', '--zero-superblock', '--force', dev])
+                    # let it fail without catching
+                cmd = ['mdadm', '--create', raid_device, '--metadata=1.0', '--level=mirror',
+                       '--raid-devices=%s' % (len(members))] + members
+                rc, out, err = util.runCmd2(cmd, with_stdout=True, with_stderr=True)
+                if rc != 0:
+                    raise Exception('Error running: %s\n%s\n\n%s' % (' '.join(cmd), out, err))
+
 def getPartitionList():
     disks = getDiskList()
     rv  = []

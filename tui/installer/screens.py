@@ -513,6 +513,54 @@ def setup_runtime_networking(answers):
     # Get the answers from the user
     return tui.network.requireNetworking(answers, defaults)
 
+def raid_array_ui(answers):
+    disk_entries = sorted_disk_list()
+    raid_disks = [de for de in disk_entries if diskutil.is_raid(de)]
+    raid_slaves = [slave for master in raid_disks for slave in diskutil.getDeviceSlaves(master)]
+    entries = []
+    for de in disk_entries:
+        if de not in raid_slaves and de not in raid_disks:
+            vendor, model, size = diskutil.getExtendedDiskInfo(de)
+            string_entry = "%s - %s [%s %s]" % (
+                diskutil.getHumanDiskName(de), diskutil.getHumanDiskSize(size), vendor, model)
+            entries.append((string_entry, de))
+    if len(entries) < 2:
+        return SKIP_SCREEN
+    text = TextboxReflowed(54, "Do you want to group disks in a software RAID 1 array?  \n\n" +
+                           "The array will be created immediately and erase all the target disks.")
+    buttons = ButtonBar(tui.screen, [('Create', 'create'), ('Back', 'back')])
+    scroll, _ = snackutil.scrollHeight(3, len(entries))
+    cbt = CheckboxTree(3, scroll)
+    for (c_text, c_item) in entries:
+        cbt.append(c_text, c_item, False)
+    gf = GridFormHelp(tui.screen, 'RAID Array', 'guestdisk:info', 1, 4)
+    gf.add(text, 0, 0, padding=(0, 0, 0, 1))
+    gf.add(cbt, 0, 1, padding=(0, 0, 0, 1))
+    gf.add(buttons, 0, 3, growx=1)
+    gf.addHotKey('F5')
+
+    tui.update_help_line([None, "<F5> disk info"])
+    loop = True
+    while loop:
+        rc = gf.run()
+        if rc == 'F5':
+            disk_more_info(cbt.getCurrent())
+        else:
+            loop = False
+    tui.screen.popWindow()
+    tui.screen.popHelpLine()
+
+    button = buttons.buttonPressed(rc)
+    if button == 'create':
+        selected = cbt.getSelection()
+        txt = 'The content of the disks %s will be deleted when you activate "Ok"' % (str(selected))
+        title = 'RAID array creation'
+        confirmation = snackutil.ButtonChoiceWindowEx(tui.screen, title, txt, ('Ok', 'Cancel'), 40, default=1)
+        if confirmation == 'ok':
+            answers['raid'] = {'/dev/md127': selected}
+            diskutil.create_raid(answers['raid'])
+    return REPEAT_STEP
+
 def disk_more_info(context):
     if not context: return True
 
@@ -541,22 +589,25 @@ def disk_more_info(context):
     return True
 
 def sorted_disk_list():
-    return sorted(diskutil.getQualifiedDiskList(),
-                  lambda x, y: len(x) == len(y) and cmp(x,y) or (len(x)-len(y)))
+    return sorted(set(diskutil.getQualifiedDiskList()),
+                  lambda x, y: len(x) == len(y) and cmp(x, y) or (len(x) - len(y)))
+
+def filter_out_raid_member(diskEntries):
+    raid_disks = [de for de in diskEntries if diskutil.is_raid(de)]
+    raid_slaves = set(member for master in raid_disks for member in diskutil.getDeviceSlaves(master))
+    return [e for e in diskEntries if e not in raid_slaves]
 
 # select drive to use as the Dom0 disk:
 def select_primary_disk(answers):
     button = None
-    diskEntries = sorted_disk_list()
-
+    diskEntries = filter_out_raid_member(sorted_disk_list())
     entries = []
     target_is_sr = {}
-    
+
     if answers['create-new-partitions']:
         min_primary_disk_size = constants.min_primary_disk_size
     else:
         min_primary_disk_size = constants.min_primary_disk_size_old
-
     for de in diskEntries:
         (vendor, model, size) = diskutil.getExtendedDiskInfo(de)
         if min_primary_disk_size <= diskutil.blockSizeToGBSize(size):
@@ -597,7 +648,7 @@ def select_primary_disk(answers):
 
 You may need to change your system settings to boot from this disk.""" % (MY_PRODUCT_BRAND),
             entries,
-            ['Ok', 'Back'], 55, scroll, height, default, help = 'pridisk:info',
+            ['Ok', 'Software RAID', 'Back'], 55, scroll, height, default, help = 'pridisk:info',
             hotkeys = {'F5': disk_more_info})
 
         tui.screen.popHelpLine()
@@ -626,7 +677,9 @@ You may need to change your system settings to boot from this disk.""" % (MY_PRO
                                "The disk selected to install %s to is greater than %d GB.  The partitioning scheme is limited to this value and therefore the remainder of this disk will be unavailable." % (MY_PRODUCT_BRAND, constants.max_primary_disk_size_dos),
                                ['Ok'])
 
-    if button == None: return SKIP_SCREEN
+    if button == None: return RIGHT_FORWARDS
+    if button == 'software raid':
+        return raid_array_ui(answers)
     if button == 'back': return LEFT_BACKWARDS
 
     return RIGHT_FORWARDS
@@ -655,7 +708,7 @@ def check_sr_space(answers):
     return EXIT
 
 def select_guest_disks(answers):
-    diskEntries = sorted_disk_list()
+    diskEntries = filter_out_raid_member(sorted_disk_list())
 
     # CA-38329: filter out device mapper nodes (except primary disk) as these won't exist
     # at XenServer boot and therefore cannot be added as physical volumes to Local SR.
