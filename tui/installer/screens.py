@@ -690,9 +690,7 @@ def select_guest_disks(answers):
     cbt = CheckboxTree(3, scroll)
     for (c_text, c_item) in entries:
         cbt.append(c_text, c_item, c_item in currently_selected)
-    txt = "Enable thin provisioning"
-    if len(BRAND_VDI) > 0:
-        txt += " (Optimized storage for %s)" % BRAND_VDI
+    txt = "Use EXT instead of LVM (leave unchecked if unsure)"
     tb = Checkbox(txt, srtype == constants.SR_TYPE_EXT and 1 or 0)
     
     gf = GridFormHelp(tui.screen, 'Virtual Machine Storage', 'guestdisk:info', 1, 4)
