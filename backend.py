@@ -39,6 +39,7 @@ import xcp.dom0
 import version
 from version import *
 from constants import *
+from diskutil import getRemovableDeviceList
 
 MY_PRODUCT_BRAND = PRODUCT_BRAND or PLATFORM_NAME
 
@@ -390,6 +391,11 @@ def performInstallation(answers, ui_package, interactive):
     for r in all_repositories:
         if r.accessor().canEject():
             r.accessor().eject()
+    with open('/proc/cmdline') as f:
+        is_netboot = 'netinstall' in f.read().split(' ')
+    if is_netboot:
+        for device in getRemovableDeviceList():
+            util.runCmd2(['eject', device])
 
     if interactive:
         # Add supp packs in a loop

@@ -92,12 +92,17 @@ def interactive_check_repo_def(definition, require_base_repo):
         return True
 
 def select_repo_source(answers, title, text, require_base_repo = True):
+    with open('/proc/cmdline') as f:
+        is_netboot = 'netinstall' in f.read().split(' ')
     ENTRY_LOCAL = 'Local media', 'local'
     ENTRY_URL = 'HTTP or FTP', 'url'
     ENTRY_NFS = 'NFS', 'nfs'
     entries = [ ENTRY_LOCAL ]
 
     default = ENTRY_LOCAL
+    if is_netboot:
+        entries = []
+        default = ENTRY_URL
     if len(answers['network-hardware'].keys()) > 0:
         entries += [ ENTRY_URL, ENTRY_NFS ]
 
@@ -152,6 +157,8 @@ def get_url_location(answers, require_base_repo):
                 url_field.set(url.replace('%s:%s@' % (username, password), '', 1))
         else:
             url_field.set(url)
+    else:
+        url_field.set('http://xcp-ng.org/install')
 
     done = False
     while not done:
