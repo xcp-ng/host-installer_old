@@ -1,0 +1,10 @@
+Autoinstall Bootstrap
+=====================
+
+The kernel command line can be modified by providing a block device
+with the filesystem label of 'autoinstall' and a text file named
+'cmdline'. The contents of this file are used instead of kernel
+command line provided by the bootloader.
+
+The partition can also be used to hold an answerfile and/or scripts,
+repositories etc. It will need to be mounted by a 'mount=' parameter.

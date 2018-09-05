@@ -1,0 +1,121 @@
+#!/bin/bash
+# Copyright (c) 2005-2006 XenSource, Inc. All use and distribution of this 
+# copyrighted material is governed by and subject to terms and conditions 
+# as licensed by XenSource, Inc. All other rights reserved.
+# Xen, XenSource and XenEnterprise are either registered trademarks or 
+# trademarks of XenSource Inc. in the United States and/or other countries.
+
+. /etc/init.d/installer-functions
+
+###
+# XEN CLEAN INSTALLER
+# Startup script
+#
+# by Andrew Peace
+
+# Test if started by init (or recursively by preinit)
+if [ "$1" == "--" ] ; then
+    started_by_init=0
+else
+    started_by_init=1
+fi
+
+console=tty0
+term=vt102
+interactive=1
+bash_shell=0
+atexit=reboot
+OLDIFS="$IFS"
+IFS="
+"
+
+xen_commandline() {
+  python -c "import xen.lowlevel.xc as xc; print xc.xc().xeninfo()['xen_commandline']"
+}
+
+# Spaces separate arguments except for spaces enclosed by a pair of single or
+# double quotes.
+args=$(cmdline | sed -e s'/ *$//' -e "s/'\([^']*\)'/\"\1\"/g" -e 's/\("\([^"]*\)"\)* \+/\2\n/g')
+set --
+for arg in $args; do
+  copy=1
+  case "$arg" in
+    answerfile=* | rt_answerfile=* | answerfile_generator=*)
+      interactive=0;;
+    console=*)
+      console=${arg#console=};;
+    term=*)
+      term=${arg#term=};;
+    bash-shell | shell)
+      bash_shell=1
+      copy=0;;
+    atexit=*)
+      atexit=${arg#atexit=}
+      copy=0;;
+    blacklist=* | enable-ide | extramodules=*)
+      copy=0;;
+    make-ramdisk=*)
+      /opt/xensource/installer/S05ramdisk start
+      copy=0;;
+    mount=* | start=*)
+      copy=0;;
+    sshpassword=*)
+      copy=0;;
+  esac
+  [ $copy -eq 1 ] && set -- "$@" "--$arg"
+done
+
+if [ $started_by_init -eq 1 ]; then
+  # started by init on the console
+
+  # Run trigger followed by settle to wait for slow storage devices
+  # to appear.
+  udevadm settle --timeout=180
+  udevadm trigger
+  udevadm settle --timeout=180
+
+  # mount xenfs if not mounted
+  if [ ! -e /proc/xen/xenbus ]; then
+    mount -t xenfs xenfs /proc/xen
+  fi
+
+  # disable printk on the screen
+  echo 1 > /proc/sys/kernel/printk
+
+  # force TERM if on a serial console (Xen defeats init's attempt to do this)
+  case "$console" in hvc*|ttyS*) export TERM=$term;; esac
+
+  if [ $bash_shell -eq 1 ]; then
+    echo "Exiting this shell will run the installer:"
+    echo " /opt/xensource/installer/init" "$@"
+    echo "---"
+    IFS="$OLDIFS" /bin/bash
+  elif [ $interactive -eq 1 ]; then
+    # start clones on all other consoles
+    for arg in $args; do
+      case "$arg" in
+        console=*)
+          c=${arg#console=}
+	  if [ $c != $console ]; then
+	    b=9600
+	    t=linux
+	    case "$c" in
+	      hvc*|ttyS*)
+		xencon=`expr "$(xen_commandline)" : '.*\(com.=[^ ]*\)'`
+		co=`expr "$c" : '\(ttyS.*\),'`
+		br=`expr "$xencon" : 'com.*=\([0-9]*\)'`
+		[ -n "$co" ] && c=$co
+		[ -n "$br" ] && b=$br
+		t=$term;;
+	    esac
+	    /sbin/agetty -n -l $0 /dev/$c $b $t &
+	  fi
+      esac
+    done
+  fi
+fi
+
+[ $atexit = reboot ] && extra_args=--reboot
+/opt/xensource/installer/init "$@" $extra_args
+[ $atexit = shell ] && IFS="$OLDIFS" /bin/bash
+[ $atexit = poweroff ] && poweroff

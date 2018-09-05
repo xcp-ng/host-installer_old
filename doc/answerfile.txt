@@ -1,0 +1,310 @@
+Answerfile Schema
+=================
+
+Optional features are marked '?'
+Features that can appear zero or more times are marked '*'
+Deprecated features are marked '[D]'
+
+
+Clean install (no backup, no config preservation):
+
+<installation> | <installation mode="fresh">
+  ...
+</installation>
+
+
+Re-install (backup, no config preservation):
+
+<installation mode="reinstall">
+  ...
+</installation>
+
+
+Upgrade (backup, preserve config):
+
+<installation mode="upgrade">
+  ...
+</installation>
+
+
+Restore:
+
+<restore>
+  ...
+</restore>
+
+Common Elements
+---------------
+
+  <source type="type">repo</source>
+  <driver-source type="type">repo</driver-source>*
+
+  where type is one of:
+
+    local (repo ignored)
+    url
+    nfs
+
+  'source' defines the location of the installation repository or a
+  Supplemental Pack. There may be multiple 'source' elements.
+
+  'driver-source' defines the source of a Supplemental Pack containing
+  device drivers to be loaded by the installer and included after
+  installation of the main repository.
+
+  Repository formats:
+
+    nfs - server:/path/
+
+    url - one of:
+
+      http://[user[:passwd]]@host[:port]/path/
+      https://[user[:passwd]]@host[:port]/path/
+      ftp://[user[:passwd]]@host[:port]/path/
+      file:///path/
+      nfs://server:/path/
+
+
+  <bootloader location="mbr|partition">grub2|extlinux[D]|grub[D]</bootloader>?
+
+    Default: mbr
+
+    grub is no longer supported as of 6.0. extlinux is no longer supported as of 7.0
+
+    Defines the bootloader variant and location.
+
+    Optional attributes:
+
+        write-boot-entry=bool
+
+            Whether to modify the EFI Boot Manager and write a boot
+            entry for a UEFI installation. (new in 7.1)
+
+            Default: True
+
+
+  <network-backend>bridge|openvswitch|vswitch</network-backend>?
+
+    Default: bridge (5.6 FP1 and earlier), vswitch (6.0 and later)
+
+    Defines the network stack variant.
+
+
+  <script stage="stage" type="type">url</script>*
+
+    where stage is one of:
+
+      installation-start (new in 6.0)
+      filesystem-populated
+      installation-complete
+
+    and type is one of:
+
+      nfs
+      url
+
+    Defines a shell or python script to be invoked at the defined
+    stage. Args passed to the script:
+
+      installation-start - None
+
+      filesystem-populated - mnt (mount point of root filesystem)
+
+      installation-complete - 0 | 1 (success or failure)
+
+  <post-install-script type="type">url</post-install-script>[D]
+
+    If 'type' is 'nfs' then 'url' is taken to be an nfs location,
+    else 'url' is treated as a url determined by its protocol.
+
+    Replaced by <script stage="filesystem-populated">
+
+  <install-failed-script>url</install-failed-script>[D]
+
+    Replaced by <script stage="installation-complete">
+
+
+  <fcoe-interface name="eth"/> | <fcoe-interface hwaddr="mac"/>*
+
+    Specifies interfaces to run Fibre Channel over Ethernet VLAN
+    Discovery on.
+
+    Optional attributes:
+
+      dcb=bool
+
+        Specify if software-based Data Center Bridging is to be used.
+
+        Default: True
+
+
+(Re)Install Elements
+--------------------
+
+  <initial-partitions>
+    <partition number="n" size="sz" id="id"/>*
+  </initial-partitions>?
+
+    Create primary partitions before installation. Used by XenRT to
+    test preservation of Dell utility partitions.
+
+
+  <zap-utility-partitions/>?[D]
+
+    Used by Dell factory install to destroy utility partitions to
+    allow GPT to be used.
+
+
+  <primary-disk>dev</primary-disk>
+
+    Specifies the target disk for installation.
+
+    Optional attributes:
+
+      guest-storage=bool
+      gueststorage=bool[D]
+
+        Include the remaining space of the primary disk in the local SR.
+
+        Default: True
+
+      sr-at-end=bool
+
+        Location of SR partition on the physical disk. Used by XenRT
+        to simulate a host that has been migrated from an OEM release.
+
+        Default: True
+
+      preserve-first-partition="true|yes|false|no|if-utility"
+
+        Defines the action to perform on detecting a non-XS partition
+	at the start of the disk.
+
+	  true|yes - Unconditionally preserve
+
+	  false|no - Unconditionally destroy
+
+          if-utility - Preserve if ID == 0xDE (MBR) or
+                       GUID == C12A7328-F81F-11D2-BA4B-00A0C93EC93B and
+                           partition label == 'DELLUTILITY' (GPT)
+
+        Default: if-utility
+
+
+  <guest-disks>
+    <guest-disk>dev</guest-disk>*
+  </guest-disks>?
+
+    Specifies additional devices to be included in the local SR.
+
+
+  <admin-interface name="eth"/> | <admin-interface hwaddr="mac"/>
+
+    Specifies the initial management interface.
+
+    Mandatory attributes:
+
+      proto="static|dhcp|none"
+
+    If the interface is static then the following elements must be
+    present:
+
+      <ipaddr>ip</ipaddr>
+      <ip>ip</ip>[D]
+
+      <subnet>subnet</subnet>
+      <subnet-mask>subnet</subnet-mask>[D]
+
+      <gateway>gw</gateway>
+
+    If proto is specified as "none" then protov6 must be specified and
+    must not be none
+
+    Optional attributes:
+
+      vlan="vlan"
+
+        Specifies tagged VLAN id for management interface. If not present,
+        untagged VLAN is used as default. VLAN is supported from 1 to 4094.
+
+      protov6="static|dhcp|autoconf|none"
+
+      Default: none
+
+    If protov6 is static then the following elements must be present:
+
+      <ipv6>ipv6/prefix_length</ipv6>
+
+      <gatewayv6>gw</gatewayv6>
+
+
+  <root-password type="plaintext|hash"*>passwd</root-password>*
+
+    Specifies the root password. The value '!!' and a type of "hash"
+    defers setting a password until first boot.
+
+    Default: type="hash", !!
+
+
+  <name-server>ip</name-server>*
+  <nameserver>ip</nameserver>*[D]
+
+    Specifies one or more DNS entries.
+
+
+  <hostname>name</hostname>?
+
+    Specifies the hostname.
+
+    Default: localhost.localdomain
+
+
+  <timezone>tz</timezone>?
+
+    Specifies the timezone (region/city)
+
+
+  <ntp-server>ntp</ntp-server>*
+  <ntp-servers>ntp</ntp-servers>*[D]
+
+    Specifies one or more NTP servers.
+
+
+  <keymap>kbd</keymap>?
+
+    Specifies the console keymap.
+
+    Default: us
+
+
+(Re)Install Attributes
+----------------------
+
+  <installation sr-type="lvm|ext"?>
+  <installation srtype="lvm|ext"?>[D]
+
+    Local SR type.
+
+    Default: lvm
+
+
+Upgrade Elements
+----------------
+
+  <existing-installation>dev</existing-installation>
+
+    Specifies the device containing the XenServer installation to be
+    upgraded.
+
+
+  <primary-disk>dev</primary-disk>?[D]
+
+    Specifies the target disk to migrate a flash-based OEM
+    installation to. (5.6 & 5.6 FP1)
+
+Restore Elements
+----------------
+
+  <backup-disk>dev</backup-disk>?
+
+    Specifies the device containing the XenServer backup to be restored.

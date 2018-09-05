@@ -1,0 +1,52 @@
+#!/bin/sh
+#
+# interface rename initialization
+#
+# chkconfig: 2345 8 92
+#
+### BEGIN INIT INFO
+# Provides: interface-rename-sideway
+# Default-Start: 2 3 4 5
+# Default-Stop: 0 1 6
+# X-Start-Before: $network
+# Short-Description: Prepare for interface rename
+### END INIT INFO
+
+start()
+{
+  local i
+
+  udevadm settle timeout=180
+  udevadm trigger
+  udevadm settle timeout=180
+
+  cd /sys/class/net
+  for i in eth*; do
+    if ! ip link show $i | grep -q '[,<]UP[,>]'; then
+        # len(name) cannot be greater than 15. Using a 4 digit random number
+        # allows for 100 (eth0-eth99) devices to have a temp name without going
+        # over 15 byte limit
+        name="side-$((RANDOM%9999))-$i"
+        while [ -e "/sys/class/net/$name" ]; do
+            name="side-$((RANDOM%9999))-$i"
+        done
+        ip link set $i name "$name"
+    fi
+  done
+
+  return 0
+}
+
+RET=0
+case "$1" in
+  start)
+    start
+    RET=$?;;
+  stop)
+    ;;
+  *)
+    echo "Usage: $0 start|stop"
+    RET=1
+esac
+
+exit $RET

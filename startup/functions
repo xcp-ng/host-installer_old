@@ -1,0 +1,8 @@
+cmdline()
+{
+    if [ -r /var/run/cmdline ]; then
+        cat /var/run/cmdline
+    else
+        cat /proc/cmdline
+    fi
+}

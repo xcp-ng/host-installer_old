@@ -1,0 +1,55 @@
+#!/bin/sh
+#
+# early-blacklist: disable some module blacklisting
+#
+# chkconfig: 2345 25 75
+# description: disable some module blacklisting
+
+### BEGIN INIT INFO
+# Provides:          early-blacklist
+# Required-Start:    $local_fs
+# Required-Stop:     
+# Default-Start:  2 3 4 5
+# Default-Stop: 0 1 6
+# X-Start-Before: udev-post
+# Short-Description: Enable some devices previously disabled
+# Description: To prevent some device assignment at boot (like usb keys 
+#              before local disks) we disable some device at boot and
+#              here we enable again and trigger udev again
+### END INIT INFO
+
+start()
+{
+  udevadm trigger
+  udevadm settle --timeout=180
+
+  # enable all devices and discover again
+  echo -n '.'
+  rm -f /etc/modprobe.d/early-blacklist.conf
+  udevadm control --reload
+  udevadm trigger
+  udevadm settle --timeout=180
+
+  return 0
+}
+
+stop()
+{
+  return 0
+}
+
+
+RET=0
+case "$1" in
+  start)
+    start
+    RET=$?;;
+  stop)
+    stop
+    RET=$?;;
+  *)
+    echo "Usage: $0 start|stop"
+    RET=1
+esac
+
+exit $RET

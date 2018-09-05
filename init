@@ -1,0 +1,262 @@
+#!/usr/bin/env python
+# Copyright (c) 2005-2006 XenSource, Inc. All use and distribution of this 
+# copyrighted material is governed by and subject to terms and conditions 
+# as licensed by XenSource, Inc. All other rights reserved.
+# Xen, XenSource and XenEnterprise are either registered trademarks or 
+# trademarks of XenSource Inc. in the United States and/or other countries.
+
+###
+# XEN CLEAN INSTALLER
+# Boot script
+#
+# written by Mark Nijmeijer and Andrew Peace
+
+import sys
+import os
+import os.path
+import signal
+
+# user interface:
+import tui
+import tui.init
+import tui.progress
+
+import install
+import init_constants
+import xelogging
+import netutil
+import diskutil
+import disktools
+import util
+from netinterface import *
+
+from version import *
+
+# Attempt to configure the network:
+def configureNetworking(ui, device, config):
+    if ui:
+        ui.progress.showMessageDialog(
+            "Preparing for installation",
+            "Attempting to configure networking..."
+            )
+
+    if device == 'all':
+        config = 'dhcp'
+    mode, rest = config.split(":", 1) if config and ":" in config else (config, None)
+    config_dict = {'gateway': None, 'dns': None, 'domain': None, 'vlan': None}
+    if rest:
+        for el in rest.split(';'):
+            k, v = el.split('=', 1)
+            config_dict[k] = v
+    if mode == 'static':
+        if config_dict['dns'] is not None:
+            config_dict['dns'] = config_dict['dns'].split(',')
+        assert 'ip' in config_dict and 'netmask' in config_dict
+    if config_dict['vlan']:
+        if not netutil.valid_vlan(config_dict['vlan']):
+            raise RuntimeError, "Invalid VLAN value for installer network"
+        config_dict['vlan'] = int(config_dict['vlan'])
+
+    nethw = netutil.scanConfiguration()
+    netcfg = {}
+    for i in nethw.keys():
+        if (device == i or device == nethw[i].hwaddr) and mode == 'static':
+            netcfg[i] = NetInterface(NetInterface.Static, nethw[i].hwaddr,
+                                     config_dict['ip'], config_dict['netmask'],
+                                     config_dict['gateway'], config_dict['dns'],
+                                     config_dict['domain'], config_dict['vlan'])
+        else:
+            netcfg[i] = NetInterface(NetInterface.DHCP, nethw[i].hwaddr,
+                                     vlan=config_dict['vlan'])
+
+    netutil.writeNetInterfaceFiles(netcfg)
+    netutil.writeResolverFile(netcfg, '/etc/resolv.conf')
+
+    iface_to_start = []
+    if device == 'all':
+        iface_to_start.extend(netcfg.keys())
+    elif device.startswith('eth'):
+        if nethw.has_key(device):
+            iface_to_start.append(device)
+    else:
+        # MAC address
+        matching_list = filter(lambda x: x.hwaddr == device, nethw.values())
+        if len(matching_list) == 1:
+            devname = matching_list[0].name
+            iface_to_start.append(devname)
+
+    for i in iface_to_start:
+        netutil.ifup(netcfg[i].getInterfaceName(i))
+        netcfg[i].waitUntilUp(i)
+
+    if ui:
+        ui.progress.clearModelessDialog()
+
+def sig_term(x, y):
+    xelogging.log("Killed by another instance, terminating")
+    os.system('/usr/bin/clear')
+    sys.exit(0)
+
+def main(args):
+    # log to tty3
+    xelogging.openLog('/dev/tty3')
+    xelogging.openLog('/tmp/install-log')
+            
+    tty = None
+    signal.signal(signal.SIGTERM, sig_term)
+    try:
+        tty = os.path.basename(os.readlink('/proc/self/fd/0'))
+        pidfile = open('/var/run/installer-%s.pid' % tty, 'w')
+        print >>pidfile, os.getpid()
+        pidfile.close()
+    except:
+        pass
+
+    operation = None
+    ui = tui
+    interactive = True
+    answer_device = 'all'
+    answer_config = 'dhcp'
+    init_network = False
+    reboot = False
+    answerfile_address = None
+    answerfile_script = None
+    mpath = False
+    use_ibft = False
+    netdev_map = []
+    
+    xelogging.log("%s Setup - Version %s" % (PRODUCT_BRAND or PLATFORM_NAME, PRODUCT_VERSION or PLATFORM_VERSION))
+    xelogging.log("Command line args: %s" % str(args))
+    for (opt, val) in args.items():
+        if opt == "--install":
+            operation = init_constants.OPERATION_INSTALL
+        elif opt == "--answerfile":
+            answerfile_address = val
+            interactive = False
+            if not val.startswith('file://'):
+                init_network = True
+        elif opt == "--rt_answerfile":
+            answerfile_address = val
+            interactive = False
+            if not val.startswith('file://'):
+                init_network = True
+            ui = None
+            xelogging.openLog(sys.stdout)
+        elif opt == "--answerfile_generator":
+            answerfile_script = val
+            interactive = False
+            if not val.startswith('file://'):
+                init_network = True
+        elif opt in ['--answerfile_device', '--network_device']:
+            answer_device = val.lower()
+            init_network = True
+        elif opt == '--network_config':
+            answer_config = val.lower()
+        elif opt == "--reboot":
+            reboot = True
+        elif opt == "--device_mapper_multipath":
+            if val.lower() in [ "disabled", "false", "0", "no" ]: 
+                mpath = False
+            elif val.lower() in [ "enabled", "true", "1", "yes", "force"]:
+                mpath = True
+        elif opt == "--use_ibft":
+            use_ibft = True
+        elif opt == "--map_netdev":
+            netdev_map = val
+
+    # check that an answerfile was specified if we're being non-interactive:
+    if not interactive and not operation:
+        xelogging.log("No operation specified for answerfile - dropping back to interactive mode.")
+        interactive = True
+        ui = tui
+
+    # start the user interface:
+    if ui:
+        # switch to ISO 8859-1 mode so line drawing characters work as expected on 
+        # vt100 terminals.
+        print "\033%@"
+
+        xelogging.log("Starting 'init' user interface on %s" % tty)
+        ui.init_ui()
+
+    # let the user choose what they would like to do:
+    if interactive:
+        # choose keymap
+        kmap = ui.init.get_keymap()
+
+        if tty:
+            try:
+                # terminate any additional instances of the installer
+                for p in os.listdir('/var/run'):
+                    if p != 'installer-%s.pid' % tty and p.startswith('installer-'):
+                        f = open('/var/run/'+p)
+                        pid = int(f.readline())
+                        f.close()
+                        xelogging.log("Killing installer with pid %d" % pid)
+                        os.kill(pid, signal.SIGTERM)
+            except:
+                pass
+                    
+        args['--keymap'] = kmap
+        xelogging.log("Loading keymap %s" % kmap)
+        util.runCmd2(["/bin/loadkeys", kmap])
+
+    # Always sanitise netdevs - it generates
+    # data for later in the install
+    # CA-60620 - dont try and run remap_netdevs in the codepath where we are
+    # running several concurrent instances.  It causes fun with competing
+    # /sbin/ip renames
+    netutil.remap_netdevs(netdev_map)
+
+    # Attaches iSCSI disks listed in iSCSI Boot Firmware Tables.  This may
+    # reserve NICs and so should be called before netutil.scanConfiguration
+    if use_ibft:
+        try:
+            diskutil.process_ibft(ui, interactive)
+        except Exception, e:
+            if ui:
+                ui.exn_error_dialog("install-log", False, interactive)
+                return reboot
+            raise
+
+    # ensure partitions/disks are not locked by LVM
+    # this should be done before attempting to enable multipath
+    lvm = disktools.LVMTool()
+    lvm.deactivateAll()
+    del lvm
+
+    # Ensure multipath devices are created unless installer is being
+    # run with the "--device_mapper_multipath=disabled" option
+    if mpath:
+        diskutil.mpath_enable()
+
+    if ui:
+        netutil.setAllLinksUp()
+    if init_network:
+        configureNetworking(ui, answer_device, answer_config)
+
+    xelogging.log("Starting installation/upgrade/restore")
+
+    rc = install.go(ui, args, answerfile_address, answerfile_script)
+
+    if ui:
+        ui.end_ui()
+
+    # Bring down multipath devices to ensure they're flushed
+    if mpath:
+        diskutil.mpath_disable()
+
+    # Log out of any iSCSI disks
+    if use_ibft:
+        diskutil.release_ibft_disks()
+
+    # stop logging to tty3:
+    xelogging.closeLogs()
+
+    return reboot
+
+
+if __name__ == "__main__":
+    reboot = main(util.splitArgs(sys.argv[1:], ('--console', '--map_netdev')))
+    if reboot:
+        os.system("reboot")

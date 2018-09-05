@@ -1,0 +1,12 @@
+# blacklist ethernet over Firewire, it causes real ethernet interfaces to be out of order
+blacklist eth1394
+
+# CA-30550 can hang on some hardware
+blacklist ipmi_si
+
+# ignore Virtual Function devices
+blacklist igbvf
+blacklist ixgbevf
+
+# CA-59480 corrupts /proc/interrupts
+blacklist be2iscsi

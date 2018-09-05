@@ -1,0 +1,184 @@
+Commandline Parameters
+======================
+
+All parameters are optional unless otherwise specified.
+
+
+Startup
+-------
+
+  debug
+
+    Enable additional debugging info including kernel messages.
+
+
+  blacklist=module[,module2]*
+
+    Prevent PCI aliases for a module causing it to be loaded by udev.
+
+
+  enable-ide
+
+    Removes blacklist of IDE subsystem drivers.
+
+
+  blacklist-ide[D]
+
+    Default in 6.0, use enable-ide to reverse.
+
+
+  extramodules=module[,module2]*
+
+    Load supplied modules.
+
+
+  make-ramdisk=dev
+
+    Create a ramdisk of sufficient size on /tmp/ramdisk and copy the
+    contents of the device into it. Multiple instances may be given
+    but only the first to succeed will mounted.
+
+
+  mount=dev[:fstype[:opt]]:mnt
+
+    Mount a given device on a mountpoint. dev can also be a logical
+    volume in the local SR or filesystem label (prefixed with LABEL=).
+
+
+  start=exe
+
+    Start exe rather than the installer (new in 6.0)
+
+
+  console=con
+
+    Run an instance of the installer on con.
+
+
+  term=termtype
+
+    set TERM.
+
+
+  bash-shell|shell
+
+   Start a shell before running the installer.
+
+
+  atexit=reboot|poweroff|shell
+
+    Action to perform when installer exits. (new in 6.1)
+
+      reboot - reboot system
+
+      poweroff - power off system
+
+      shell - drop to shell
+
+    Default: reboot
+
+
+  sshpassword=<password>
+
+    Start the dropbear ssh server with the root password set as requested.
+
+
+Installer
+---------
+
+  --install
+
+    Proceed with installation/upgrade.
+
+
+  --answerfile=ans
+
+    Read answerfile and perform a non-interactive installation
+    reporting status using screens.
+
+
+  --rt_answerfile=ans
+
+    Read answerfile and perform a non-interactive installation
+    reporting status to the console as text.
+
+
+  --answerfile_generator=script
+
+    Run script and use the output of it as an answerfile.
+
+
+  --answerfile_device[D]=eth|mac|all | --network_device=eth|mac|all
+
+    Bring up networking on the given interface to allow access to
+    answerfiles.
+
+    Default: all
+
+
+  --map_netdev=eth:d|s:mac|pci|ppn
+
+    Map interface with the given MAC address, PCI address or PPN to the given
+    interface name.
+
+
+  --network_config=dhcp[:vlan=vlan]|static:ip=ip;netmask=netmask[;gateway=gw][;dns=dns1[,dns2]][;domain=domain][;vlan=vlan]
+
+    Defines the IP configuration to bring up to allow access to
+    answerfiles. VLAN is supported from 1 to 4094.
+
+    Default: dhcp
+
+
+  --reboot
+
+    Reboot host after installation
+
+
+  --device_mapper_multipath=disabled|enabled
+
+    Default: disabled
+
+
+  --use_ibft
+
+    Read IBFT to determine iSCSI boot configuration.
+
+
+  --boot_console=con
+
+    Use con as the console for XenServer rather than that specified by
+    --console.
+
+
+  --keymap=kbd
+
+    Specifies the console keymap.
+
+    Default: us
+
+
+  --extrarepo=repo*
+
+    Install repo in addition to repositories defined by answerfile
+    etc.
+
+
+  --onecd
+
+    Do not prompt for additional media.
+
+
+  --disable-gpt
+
+    Revert to DOS partitioning for clean installs.
+
+
+  --virtual
+
+    Installer is running in a VM.
+
+
+  --disable-uefi
+
+    Install in legacy boot mode. Only present in 7.0.

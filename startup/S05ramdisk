@@ -1,0 +1,171 @@
+#!/bin/sh
+
+# This script creates a ramdisk containing XenServer install sources
+# from the customer/service partition. There are two modes of operation:
+#
+# 1. Original Bodie mode - the contents of the entire device are copied
+#    to the ramdisk in a recursive file copy.
+#
+# 2. ISO mode - if the filesystem on the device contains a top level
+#    directory named "xsinst" then the ramdisk will be populated with
+#    the unpacked contents of any *.iso file in xsinst as well as
+#    a recursize copy of any other files/directories in xsinst. A non-ISO
+#    file/dir in xsinst gets copied to the top level of the filesystem in
+#    the ramdisk. Typically xsinst will contain a XenServer main.iso,
+#    zero or more supplemental pack ISOs, an answerfile generator and
+#    a post install script. When using this mode with FATx filesystems it
+#    is recommended to use 8.3 naming of the files in xsinst (note that
+#    the ISOs themselves are unpacked to the tmpfs ramdisk so can have
+#    long filenames). You can override "xsinst" with installer param
+#    xsinst=path
+
+start()
+{
+  ret=0
+  xsinst="xsinst"
+  for arg in `cat /proc/cmdline | sed -e 's/ $//; y/ /\n/'`; do
+    case "$arg" in
+      xsinst=*)
+        xsinst=${arg#xsinst=}
+        ;;
+      make-ramdisk=*)
+        src=${arg#make-ramdisk=}
+	[ -d /tmp/ramdisk ] && continue
+	copied=0
+	errors=0
+        echo -n "Copying installation image from $src to ramdisk..."
+
+	# hang around a while for USB devices to settle
+	for n in `seq 1 5`; do
+	  [ -b $src ] && break
+	  sleep 5
+	done
+	if ! [ -b $src ]; then
+	    echo " failed"
+	    continue
+	fi
+
+	# mount the source
+	mkdir /tmp/src
+	for fs in iso9660 vfat ext3; do
+	  mount -t $fs -o ro $src /tmp/src 2>/dev/null && break
+	done
+	if grep -q ' /tmp/src ' /proc/mounts; then 
+
+	  # create appropriately sized ramdisk and populate
+          if [ -d /tmp/src/$xsinst ]; then
+	    # ISO mode, assume the ISOs unpack to less than 110% of the
+	    # ISO size. We'll also add 1000k headroom later.
+	    fssize=`du -ks /tmp/src/$xsinst | awk '{print $1}'`
+          else
+	    # Original mode
+  	    fssize=`df -k /tmp/src | sed -ne 's#^/[^ ]\+ \+[0-9]\+ \+\([0-9]\+\).*#\1#p'`
+	  fi
+	  mkdir /tmp/ramdisk
+	  shopt -s dotglob
+	  mount -t tmpfs -o size=$((fssize * 11/10 + 2000))k tmpfs /tmp/ramdisk
+          if [ -d /tmp/src/$xsinst ]; then
+	    # ISO mode. Iterate through ISOs in the $xsinst directory
+	    # unpacking each one to the ramdisk
+            for isofile in /tmp/src/$xsinst/*.iso; do
+              if [ -f $isofile ]; then
+                mkdir -p /tmp/srciso
+                mount -oloop -t iso9660 $isofile /tmp/srciso
+		if grep -q ' /tmp/srciso ' /proc/mounts; then
+                  if [ -f /tmp/srciso/.treeinfo ]; then
+                    # This is the main product ISO
+                    if ! cp -a /tmp/srciso/* /tmp/ramdisk; then
+		      errors=$(($errors + 1))
+                    fi
+                  fi
+                  if [ -f /tmp/srciso/XS-REPOSITORY-LIST ]; then
+                    # Additional repositories
+                    for repo in $(cat /tmp/srciso/XS-REPOSITORY-LIST); do
+                      if cp -a /tmp/srciso/$repo /tmp/ramdisk; then
+                        echo $repo >> /tmp/ramdisk/XS-REPOSITORY-LIST
+                      else
+			errors=$(($errors + 1))
+                      fi
+                    done
+                  fi
+                  if [ -f /tmp/srciso/XS-REPOSITORY -a -f /tmp/srciso/XS-PACKAGES ]; then
+                    # Supplemental pack
+                    orig=$(sed -ne '/<repository/ s/.*originator="\([^"]*\)".*/\1/p' /tmp/srciso/XS-REPOSITORY)
+                    name=$(sed -ne '/<repository/ s/.*name="\([^"]*\)".*/\1/p' /tmp/srciso/XS-REPOSITORY)
+		    packdir="$orig#$name"
+                    if [ -n "$packdir" ]; then
+                      mkdir -p /tmp/ramdisk/$packdir
+                      if cp -a /tmp/srciso/* /tmp/ramdisk/$packdir; then
+			echo $packdir >> /tmp/ramdisk/XS-REPOSITORY-LIST
+		      else
+                        errors=$(($errors + 1))
+		      fi
+                    else
+                      errors=$(($errors + 1))
+                    fi
+                  fi
+                  umount /tmp/srciso
+                fi
+              fi
+            done
+            # Copy any remaining files/dirs recursively (these may be
+            # answerfile or hook scripts)
+            for f in /tmp/src/$xsinst/*; do
+              if [ $f = "/tmp/src/$xsinst/factory.tar" ]; then
+                continue
+              fi
+              if [ ${f: -4} = ".iso" ]; then
+                continue
+              fi
+              if ! cp -a $f /tmp/ramdisk; then
+		errors=$(($errors + 1))
+              fi
+            done
+            if [ $errors -eq 0 ]; then
+              copied=1
+            fi
+          else
+            # Original recursive copy mode
+            if cp -a /tmp/src/* /tmp/ramdisk; then
+              copied=1
+            fi
+          fi
+	  if [ $copied -eq 1 ] ; then
+	    echo " done"
+	  else
+	    umount /tmp/ramdisk
+	    rmdir /tmp/ramdisk
+	  fi
+	  umount /tmp/src
+	fi
+	rmdir /tmp/src
+	if [ $copied -eq 0 ]; then
+	  echo " failed"
+	  ret=1
+	fi;;
+    esac
+  done
+  return $ret
+}
+
+stop()
+{
+  grep -q ' /tmp/ramdisk ' && umount /tmp/ramdisk
+  return 0
+}
+
+
+RET=0
+case "$1" in
+  start)
+    start
+    RET=$?;;
+  stop)
+    stop
+    RET=$?;;
+  *)
+    echo "Usage: $0 start|stop"
+    RET=1
+esac
+
+exit $RET
