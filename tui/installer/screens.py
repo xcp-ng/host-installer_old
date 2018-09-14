@@ -559,7 +559,9 @@ def raid_array_ui(answers):
         confirmation = snackutil.ButtonChoiceWindowEx(tui.screen, title, txt, ('Ok', 'Cancel'), 40, default=1)
         if confirmation == 'ok':
             answers['raid'] = {'/dev/md127': selected}
+            tui.progress.showMessageDialog("Please wait", "Creating raid array...")
             diskutil.create_raid(answers['raid'])
+            tui.progress.clearModelessDialog()
     return REPEAT_STEP
 
 def disk_more_info(context):
