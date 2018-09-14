@@ -289,7 +289,7 @@ class NetDevices:
 ### EA-1069
 
 import xcp.logger as LOG
-from xcp.pci import VALID_SBDF
+from xcp.pci import VALID_SBDFI
 from xcp.net.mac import VALID_COLON_MAC
 from xcp.net.ip import ip_link_set_name
 from xcp.net.ifrename.logic import rename, VALID_ETH_NAME
@@ -303,7 +303,7 @@ dynamic_rules = DynamicRules()
 
 RX_ETH = VALID_ETH_NAME
 RX_MAC = VALID_COLON_MAC
-RX_PCI = VALID_SBDF
+RX_PCI = VALID_SBDFI
 RX_PPN = re.compile(r"^(?:em\d+|pci\d+p\d+)$")
 
 def parse_arg(arg):

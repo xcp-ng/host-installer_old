@@ -1075,7 +1075,7 @@ def prepFallback(mounts, primary_disk, primary_partnum):
 def buildBootLoaderMenu(mounts, xen_version, xen_kernel_version, boot_config, serial, boot_serial, host_config, primary_disk, disk_label_suffix, fcoe_interfaces):
     short_version = kernelShortVersion(xen_kernel_version)
     common_xen_params = "dom0_mem=%dM,max:%dM" % ((host_config['dom0-mem'],) * 2)
-    common_xen_unsafe_params = "watchdog ucode=scan dom0_max_vcpus=%d" % host_config['dom0-vcpus']
+    common_xen_unsafe_params = "watchdog ucode=scan dom0_max_vcpus=1-%d" % host_config['dom0-vcpus']
     safe_xen_params = ("nosmp noreboot noirqbalance no-mce no-bootscrub "
                        "no-numa no-hap no-mmcfg iommu=off max_cstate=0 "
                        "nmi=ignore allow_unsafe")

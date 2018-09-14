@@ -39,8 +39,8 @@ def getUpgrader(src):
 
 class Upgrader(object):
     """ Base class for upgraders.  Superclasses should define an
-    upgrades_product variable that is the product they upgrade, an 
-    upgrades_variants list of Retail install types that they upgrade, and an 
+    upgrades_product variable that is the product they upgrade, an
+    upgrades_variants list of Retail install types that they upgrade, and an
     upgrades_versions that is a list of pairs of version extents they support
     upgrading."""
 
@@ -183,7 +183,7 @@ class ThirdGenUpgrader(Upgrader):
     upgrades_variants = [ 'Retail' ]
     requires_backup = True
     optional_backup = False
-    
+
     def __init__(self, source):
         Upgrader.__init__(self, source)
         primary_fs = util.TempMount(self.source.root_device, 'primary-', options = ['ro'])
@@ -396,7 +396,7 @@ class ThirdGenUpgrader(Upgrader):
         return installID, controlID
 
     def buildRestoreList(self):
-        self.restore_list += ['etc/xensource/ptoken', 'etc/xensource/pool.conf', 
+        self.restore_list += ['etc/xensource/ptoken', 'etc/xensource/pool.conf',
                               'etc/xensource/xapi-ssl.pem']
         self.restore_list.append({'dir': 'etc/ssh', 're': re.compile(r'.*/ssh_host_.+')})
 
@@ -405,6 +405,7 @@ class ThirdGenUpgrader(Upgrader):
         self.restore_list.append({'dir': 'etc/sysconfig/network-scripts', 're': re.compile(r'.*/ifcfg-[a-z0-9.]+')})
 
         self.restore_list += [constants.XAPI_DB, 'etc/xensource/license']
+        self.restore_list += [constants.CLUSTERD_CONF]
         self.restore_list.append({'src': constants.OLD_XAPI_DB, 'dst': constants.XAPI_DB})
         self.restore_list.append({'dir': constants.FIRSTBOOT_DATA_DIR, 're': re.compile(r'.*.conf')})
 
@@ -601,7 +602,7 @@ class UpgraderList(list):
             if x.upgrades(product, version, variant):
                 return True
         return False
-    
+
 __upgraders__ = UpgraderList([ThirdGenUpgrader, InCloudSphereUpgrader])
 
 def filter_for_upgradeable_products(installed_products):

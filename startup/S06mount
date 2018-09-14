@@ -1,0 +1,78 @@
+#!/bin/sh
+
+start()
+{
+  local oldifs="$IFS"
+
+  ret=0
+  for arg in `cat /proc/cmdline | sed -e 's/ $//; y/ /\n/'`; do
+    case "$arg" in
+      mount=*)
+        IFS=':'
+        set -- ${arg#mount=}
+        IFS="$oldifs"
+        [ -n "$2" ] || continue
+        device=$1
+        if [ -n "$4" ]; then
+            fstype=$2
+            opts=$3
+            mnt=$4
+        elif [ -n "$3" ]; then
+            fstype=$2
+            mnt=$3
+        else
+            mnt=$2
+        fi
+
+        case "$device" in
+          VG_*)
+          # Logical volume
+          lvchange -a y $device || continue
+          set -- `echo $device | tr / ' '`
+          vg=`echo $1 | sed -e 's/-/--/g'`
+          lv=`echo $2 | sed -e 's/-/--/g'`
+          device="/dev/mapper/$vg-$lv";;
+          LABEL=*)
+            device=`blkid -t $device -o device`;;
+        esac
+
+        [ -r $mnt ] || mkdir -p $mnt
+        [ -d $mnt ] || continue
+
+        # hang around a while for USB devices to settle
+        for n in `seq 1 5`; do
+          [ -b $device ] && break
+          sleep 5
+        done
+        if ! [ -b $device ]; then
+            continue
+        fi
+
+        if mount ${fstype:+-t $fstype} ${opts:+-o $opts} $device $mnt; then
+          echo "Mounted $device on $mnt"
+        fi;;
+    esac
+  done
+  return $ret
+}
+
+stop()
+{
+  return 0
+}
+
+
+RET=0
+case "$1" in
+  start)
+    start
+    RET=$?;;
+  stop)
+    stop
+    RET=$?;;
+  *)
+    echo "Usage: $0 start|stop"
+    RET=1
+esac
+
+exit $RET

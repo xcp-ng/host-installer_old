@@ -64,14 +64,14 @@ def error_string(error, logname, with_hd):
         ERROR_STRING_KNOWN_ERROR
     ) = range(3)
 
-    ERROR_STRINGS = { 
+    ERROR_STRINGS = {
         ERROR_STRING_UNKNOWN_ERROR_WITH_HD: "An unrecoverable error has occurred.  The details of the error can be found in the log file, which has been written to /tmp/%s (and /root/%s on your hard disk if possible).",
         ERROR_STRING_UNKNOWN_ERROR_WITHOUT_HD: "An unrecoverable error has occurred.  The details of the error can be found in the log file, which has been written to /tmp/%s.",
         ERROR_STRING_KNOWN_ERROR: "An unrecoverable error has occurred.  The error was:\n\n%s\n"
     }
 
     if version.PRODUCT_VERSION:
-        ERROR_STRINGS = { 
+        ERROR_STRINGS = {
             ERROR_STRING_UNKNOWN_ERROR_WITH_HD: "An unrecoverable error has occurred.  The details of the error can be found in the log file, which has been written to /tmp/%s (and /root/%s on your hard disk if possible).\n\nPlease refer to your user guide or contact a Technical Support Representative for more details.",
             ERROR_STRING_UNKNOWN_ERROR_WITHOUT_HD: "An unrecoverable error has occurred.  The details of the error can be found in the log file, which has been written to /tmp/%s.\n\nPlease refer to your user guide or contact a Technical Support Representative for more details.",
             ERROR_STRING_KNOWN_ERROR: "An unrecoverable error has occurred.  The error was:\n\n%s\n\nPlease refer to your user guide, or contact a Technical Support Representative, for further details."
@@ -162,6 +162,7 @@ OLD_NETWORKD_DB = "opt/xensource/libexec/networkd_db"
 NET_SCR_DIR = "etc/sysconfig/network-scripts"
 OLD_XAPI_DB = 'var/xapi/state.db'
 XAPI_DB = 'var/lib/xcp/state.db'
+CLUSTERD_CONF = 'var/opt/xapi-clusterd/db'
 
 POST_INSTALL_SCRIPTS_DIR = "etc/xensource/scripts/install"
 
