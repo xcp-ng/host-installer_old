@@ -173,7 +173,7 @@ def create_raid(configuration):
                 for dev in members:
                     util.runCmd2(['mdadm', '--zero-superblock', '--force', dev])
                     # let it fail without catching
-                cmd = ['mdadm', '--create', raid_device, '--metadata=1.0', '--level=mirror',
+                cmd = ['mdadm', '--create', raid_device, '--run', '--metadata=1.0', '--level=mirror',
                        '--raid-devices=%s' % (len(members))] + members
                 rc, out, err = util.runCmd2(cmd, with_stdout=True, with_stderr=True)
                 if rc != 0:
