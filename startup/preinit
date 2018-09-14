@@ -55,11 +55,14 @@ for arg in $args; do
     blacklist=* | enable-ide | extramodules=*)
       copy=0;;
     make-ramdisk=*)
-      /opt/xensource/installer/S05ramdisk start
+      [ -z "$ramdisk_done" ] && /opt/xensource/installer/S05ramdisk start
+      ramdisk_done=1
       copy=0;;
-    mount=* | start=*)
+    mount=*)
+      [ -z "$mount_done" ] && /opt/xensource/installer/S06mount start
+      mount_done=1
       copy=0;;
-    sshpassword=*)
+    sshpassword=* | start=*)
       copy=0;;
   esac
   [ $copy -eq 1 ] && set -- "$@" "--$arg"

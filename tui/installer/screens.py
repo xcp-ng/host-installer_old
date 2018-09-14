@@ -278,6 +278,7 @@ def get_installation_type(answers):
         tui.update_help_line([' ', ' '])
         snackutil.TableDialog(tui.screen, "Details", ("Use:", use),
                               ("Version:", str(obj.visual_version)),
+                              ("Build:", str(obj.build)),
                               ("Installed:", date),
                               ("Disk:", dev))
         tui.screen.popHelpLine()

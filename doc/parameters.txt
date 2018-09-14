@@ -116,10 +116,14 @@ Installer
     Default: all
 
 
-  --map_netdev=eth:d|s:mac|pci|ppn
+  --map_netdev=eth:d|s:mac|pci[[index]]|ppn
 
     Map interface with the given MAC address, PCI address or PPN to the given
     interface name.
+    Some NICs expose multiple interfaces for a single PCI address.  In these
+    cases the PPN is often not reliable.  An index to a PCI address can be
+    specified if required (NICs are sorted in MAC order).  An index of 0 is
+    implied when one is not provided.
 
 
   --network_config=dhcp[:vlan=vlan]|static:ip=ip;netmask=netmask[;gateway=gw][;dns=dns1[,dns2]][;domain=domain][;vlan=vlan]
