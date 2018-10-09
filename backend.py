@@ -164,6 +164,7 @@ def getRepoSequence(ans, repos):
 
 def getFinalisationSequence(ans):
     seq = [
+        Task(importYumAndRpmGpgKeys, A(ans, 'mounts'), []),
         Task(writeResolvConf, A(ans, 'mounts', 'manual-hostname', 'manual-nameservers'), []),
         Task(writeMachineID, A(ans, 'mounts'), []),
         Task(writeKeyboardConfiguration, A(ans, 'mounts', 'keymap'), []),
@@ -1656,6 +1657,28 @@ def touchSshAuthorizedKeys(mounts):
     fh = open("%s/root/.ssh/authorized_keys" % mounts['root'], 'a')
     fh.close()
 
+def importYumAndRpmGpgKeys(mounts):
+    # Python script that uses yum functions to import the GPG key for our repositories
+    import_yum_keys = """#!/bin/env python
+from __future__ import print_function
+from yum import YumBase
+
+def retTrue(*args, **kwargs):
+    return True
+
+base = YumBase()
+for repo in base.repos.repos.itervalues():
+    if repo.id.startswith('xcp-ng'):
+        print("*** Importing GPG key for repository %s - %s" % (repo.id, repo.name))
+        base.getKeyForRepo(repo, callback=retTrue)
+"""
+    internal_tmp_filepath = '/tmp/import_yum_keys.py'
+    external_tmp_filepath = mounts['root'] + internal_tmp_filepath
+    with open(external_tmp_filepath, 'w') as f:
+        f.write(import_yum_keys)
+    util.runCmd2(['chroot', mounts['root'], 'python', internal_tmp_filepath])
+    util.runCmd2(['chroot', mounts['root'], 'rpm', '--import', '/etc/pki/rpm-gpg/RPM-GPG-KEY-xcpng'])
+    os.unlink(external_tmp_filepath)
 
 ################################################################################
 # OTHER HELPERS
