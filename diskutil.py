@@ -168,6 +168,10 @@ def getDiskList():
 def create_raid(configuration):
     if configuration:
         for raid_device, members in configuration.viewitems():
+            if os.path.exists(raid_device):
+                util.runCmd2(['mdadm', '--stop', '--force', raid_device])
+                for dev in members:
+                    util.runCmd2(['dd', 'if=/dev/zero', 'of=%s' % dev, 'bs=512', 'count=1'])
             # allows for idempotence
             if not os.path.exists(raid_device):
                 for dev in members:
