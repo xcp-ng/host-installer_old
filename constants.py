@@ -150,6 +150,8 @@ OLD_BLOB_DIRECTORY = "var/xapi/blobs"
 BLOB_DIRECTORY = "var/lib/xcp/blobs"
 
 MAIN_REPOSITORY_NAME = 'xcp:main'
+MAIN_REPOSITORY_GPG_KEY_FILE = '/opt/xensource/installer/RPM-GPG-KEY-xcpng'
+
 MAIN_XS_REPOSITORY_NAME = 'xs:main'
 INTERNAL_REPOS = [MAIN_XS_REPOSITORY_NAME, "xs:xenserver-transfer-vm", "xs:linux", "xcp:extras"]
 

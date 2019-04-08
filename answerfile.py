@@ -92,6 +92,7 @@ class Answerfile:
         xelogging.log("Processing XML answerfile for %s." % self.operation)
         if self.operation == 'installation':
             install_type = getStrAttribute(self.top_node, ['mode'], default = 'fresh')
+            results['netinstall-gpg-check'] = getBoolAttribute(self.top_node, ['netinstall-gpg-check'], default = True)
             if install_type == "fresh":
                 results = self.parseFreshInstall()
             elif install_type == "reinstall":

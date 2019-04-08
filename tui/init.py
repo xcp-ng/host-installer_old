@@ -61,14 +61,14 @@ def choose_operation(display_restore):
 def driver_disk_sequence(answers, driver_repos):
     uic = uicontroller
     seq = [
-        uic.Step(tui.repo.select_repo_source, 
-                 args = ["Select Driver Source", "Please select where you would like to load the Supplemental Pack containing the driver from:", 
+        uic.Step(tui.repo.select_repo_source,
+                 args = ["Select Driver Source", "Please select where you would like to load the Supplemental Pack containing the driver from:",
                          False]),
         uic.Step(tui.network.requireNetworking,
                  predicates = [lambda a: a['source-media'] != 'local']),
-        uic.Step(tui.repo.get_source_location, 
+        uic.Step(tui.repo.get_source_location,
                  predicates = [lambda a: a['source-media'] != 'local'],
-                 args = [False]),
+                 args = [False, False]),
         uic.Step(tui.repo.confirm_load_repo, args=['driver', driver_repos]),
         ]
     rc = uicontroller.runSequence(seq, answers)

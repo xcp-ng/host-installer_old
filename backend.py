@@ -41,6 +41,7 @@ import version
 from version import *
 from constants import *
 from diskutil import getRemovableDeviceList
+from uicontroller import REPEAT_STEP
 
 MY_PRODUCT_BRAND = PRODUCT_BRAND or PLATFORM_NAME
 
@@ -273,12 +274,12 @@ def executeSequence(sequence, seq_name, answers, ui, cleanup):
         doCleanup(answers['cleanup'])
         raise
     else:
-        if ui and pd:
-            ui.progress.clearModelessDialog()
-
         if cleanup:
             doCleanup(answers['cleanup'])
             del answers['cleanup']
+    finally:
+        if ui and pd:
+            ui.progress.clearModelessDialog()
 
 def performInstallation(answers, ui_package, interactive):
     xelogging.log("INPUT ANSWERS DICTIONARY:")
@@ -347,7 +348,6 @@ def performInstallation(answers, ui_package, interactive):
 
     # perform installation:
     prep_seq = getPrepSequence(answers, interactive)
-    answers_pristine = answers.copy()
     executeSequence(prep_seq, "Preparing for installation...", answers, ui_package, False)
 
     # install from main repositories:
@@ -361,12 +361,6 @@ def performInstallation(answers, ui_package, interactive):
 
     answers['installed-repos'] = {}
 
-    # A list needs to be used rather than a set since the order of updates is
-    # important.  However, since the same repository might exist in multiple
-    # locations or the same location might be listed multiple times, care is
-    # needed to ensure that there are no duplicates.
-    all_repositories = []
-
     def add_repos(all_repositories, repos):
         """Add repositories to the list, ensuring no duplicates, that the main
         repository is at the beginning, and that the order of the rest is
@@ -379,25 +373,56 @@ def performInstallation(answers, ui_package, interactive):
                 else:
                     all_repositories.append(repo)
 
-    # A list of sources coming from the answerfile
-    if 'sources' in answers_pristine:
-        for i in answers_pristine['sources']:
-            repos = repository.repositoriesFromDefinition(i['media'], i['address'])
+    while True:
+        # A list needs to be used rather than a set since the order of updates is
+        # important.  However, since the same repository might exist in multiple
+        # locations or the same location might be listed multiple times, care is
+        # needed to ensure that there are no duplicates.
+        all_repositories = []
+
+        # A list of sources coming from the answerfile
+        if 'sources' in answers:
+            for i in answers['sources']:
+                repos = repository.repositoriesFromDefinition(i['media'], i['address'])
+                add_repos(all_repositories, repos)
+
+        # A single source coming from an interactive install
+        if 'source-media' in answers and 'source-address' in answers:
+            repos = repository.repositoriesFromDefinition(answers['source-media'], answers['source-address'])
             add_repos(all_repositories, repos)
 
-    # A single source coming from an interactive install
-    if 'source-media' in answers_pristine and 'source-address' in answers_pristine:
-        repos = repository.repositoriesFromDefinition(answers_pristine['source-media'], answers_pristine['source-address'])
-        add_repos(all_repositories, repos)
+        for media, address in answers['extra-repos']:
+            repos = repository.repositoriesFromDefinition(media, address)
+            add_repos(all_repositories, repos)
 
-    for media, address in answers_pristine['extra-repos']:
-        repos = repository.repositoriesFromDefinition(media, address)
-        add_repos(all_repositories, repos)
+        if all_repositories[0].identifier() != MAIN_REPOSITORY_NAME:
+            raise RuntimeError("No main repository found")
 
-    if all_repositories[0].identifier() != MAIN_REPOSITORY_NAME:
-        raise RuntimeError("No main repository found")
+        # Check the GPG key of the main repository when a remote repository is used.
+        if answers['netinstall-gpg-check']:
+            all_repositories[0].setGpgCheck()
 
-    handleRepos(all_repositories, answers)
+        try:
+            handleRepos(all_repositories, answers)
+            break
+        except repository.RepoSecurityConfigError as e:
+            if interactive:
+                # In net install mode, we cannot have more than 1 remote repository.
+                # (The RepoSecurityConfigError exception is only thrown in this mode.)
+                #
+                # It's difficult to handle many repositories because: How can we
+                # retrieve a stable state if all packages of one repository have been
+                # installed successfully but there's been installation errors on other
+                # repositories?
+                assert(answers['source-media'] == 'url')
+                assert(len(all_repositories) == 1)
+                installer = ui_package.installer
+                if installer.screens.reconfigure_repo(str(e)) == REPEAT_STEP:
+                    # Reconfigure.
+                    answers = installer.reconfigure_source_location_sequence(answers)
+                    continue
+            raise
+
     all_repositories[0].installKeys(answers['mounts']['root'])
 
     # Find repositories that we installed from removable media
@@ -405,16 +430,15 @@ def performInstallation(answers, ui_package, interactive):
     for r in all_repositories:
         if r.accessor().canEject():
             r.accessor().eject()
-    with open('/proc/cmdline') as f:
-        is_netboot = 'netinstall' in f.read().split(' ')
-    if is_netboot:
+
+    if util.isNetInstall():
         for device in getRemovableDeviceList():
             util.runCmd2(['eject', device])
 
     if interactive:
         # Add supp packs in a loop
         while True:
-            media_ans = dict(answers_pristine)
+            media_ans = dict(answers)
             del media_ans['source-media']
             del media_ans['source-address']
             media_ans = ui_package.installer.more_media_sequence(media_ans)
