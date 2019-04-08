@@ -30,6 +30,12 @@ random.seed()
 _dev_null_fh = None
 
 ###
+# string helpers
+
+def elide(text, max_len):
+    return text[:max(max_len, 3) - 3] + "..." if len(text) > max_len else text
+
+###
 # directory/tree management
 
 def assertDir(dirname):
@@ -387,3 +393,7 @@ def udevinfoCmd():
 
 def randomLabelStr():
     return "".join([random.choice(string.ascii_lowercase) for x in range(6)])
+
+def isNetInstall():
+    with open('/proc/cmdline') as f:
+        return 'netinstall' in f.read().split(' ')

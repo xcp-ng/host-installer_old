@@ -33,6 +33,17 @@ Restore:
   ...
 </restore>
 
+
+Concerning clean install, re-install and upgrade:
+
+  Optional attributes:
+
+      netinstall-gpg-check=bool
+
+          Check authenticity of repository metadata and RPMs (GPG signatures) (new in 8.0)
+
+          Default: True
+
 Common Elements
 ---------------
 

@@ -1264,3 +1264,14 @@ Please remove any local media from the drive, and press Enter to reboot.""" % MY
 
     return RIGHT_FORWARDS
 
+def reconfigure_repo(message):
+    button = ButtonChoiceWindow(
+        tui.screen,
+        "Repository error",
+        message,
+        ['Reconfigure', 'Cancel'],
+        width = 60, help = 'repowarn'
+        )
+
+    if button == 'cancel': return EXIT
+    return REPEAT_STEP

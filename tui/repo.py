@@ -92,15 +92,13 @@ def interactive_check_repo_def(definition, require_base_repo):
         return True
 
 def select_repo_source(answers, title, text, require_base_repo = True):
-    with open('/proc/cmdline') as f:
-        is_netboot = 'netinstall' in f.read().split(' ')
     ENTRY_LOCAL = 'Local media', 'local'
     ENTRY_URL = 'HTTP or FTP', 'url'
     ENTRY_NFS = 'NFS', 'nfs'
     entries = [ ENTRY_LOCAL ]
 
     default = ENTRY_LOCAL
-    if is_netboot:
+    if util.isNetInstall():
         entries = []
         default = ENTRY_URL
     if len(answers['network-hardware'].keys()) > 0:
@@ -133,9 +131,11 @@ def select_repo_source(answers, title, text, require_base_repo = True):
         if require_base_repo and not interactive_check_repo_def(('local', ''), True):
             return REPEAT_STEP
 
+    answers['netinstall-gpg-check'] = entry == 'url'
+
     return RIGHT_FORWARDS
 
-def get_url_location(answers, require_base_repo):
+def get_url_location(answers, require_base_repo, is_main_install):
     text = "Please enter the URL for your HTTP or FTP repository and, optionally, a username and password"
     url_field = Entry(50)
     user_field = Entry(16)
@@ -143,6 +143,7 @@ def get_url_location(answers, require_base_repo):
     url_text = Textbox(11, 1, "URL:")
     user_text = Textbox(11, 1, "Username:")
     passwd_text = Textbox(11, 1, "Password:")
+    gpgcheck_cb = Checkbox("Check authenticity of repository metadata and RPMs (GPG signatures)", answers['netinstall-gpg-check'])
 
     if answers.has_key('source-address'):
         url = answers['source-address']
@@ -162,7 +163,7 @@ def get_url_location(answers, require_base_repo):
 
     done = False
     while not done:
-        gf = GridFormHelp(tui.screen, "Specify Repository", 'geturlloc', 1, 3)
+        gf = GridFormHelp(tui.screen, "Specify Repository", 'geturlloc', 1, 4)
         bb = ButtonBar(tui.screen, [ 'Ok', 'Back' ])
         t = TextboxReflowed(50, text)
 
@@ -176,7 +177,9 @@ def get_url_location(answers, require_base_repo):
 
         gf.add(t, 0, 0, padding = (0, 0, 0, 1))
         gf.add(entry_grid, 0, 1, padding = (0, 0, 0, 1))
-        gf.add(bb, 0, 2, growx = 1)
+        if is_main_install:
+            gf.add(gpgcheck_cb, 0, 2, padding = (0, 0, 0, 1))
+        gf.add(bb, 0, 3, growx = 1)
 
         button = bb.buttonPressed(gf.runOnce())
 
@@ -193,10 +196,11 @@ def get_url_location(answers, require_base_repo):
             answers['source-address'] = url_field.value()
         if len(answers['source-address']) > 0:
             done = interactive_check_repo_def((answers['source-media'], answers['source-address']), require_base_repo)
-            
+        answers['netinstall-gpg-check'] = is_main_install and gpgcheck_cb.selected()
+
     return RIGHT_FORWARDS
 
-def get_nfs_location(answers, require_base_rep):
+def get_nfs_location(answers, require_base_rep, is_main_install):
     text = "Please enter the server and path of your NFS share (e.g. myserver:/my/directory)"
     label = "NFS Path:"
         
@@ -221,11 +225,11 @@ def get_nfs_location(answers, require_base_rep):
             
     return RIGHT_FORWARDS
 
-def get_source_location(answers, require_base_rep):
+def get_source_location(answers, require_base_rep, is_main_install):
     if answers['source-media'] == 'url':
-        return get_url_location(answers, require_base_rep)
+        return get_url_location(answers, require_base_rep, is_main_install)
     else:
-        return get_nfs_location(answers, require_base_rep)
+        return get_nfs_location(answers, require_base_rep, is_main_install)
 
 def confirm_load_repo(answers, label, installed_repos):
     cap_label = ' '.join(map(lambda a: a.capitalize(), label.split()))
