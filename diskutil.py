@@ -15,6 +15,7 @@ import os.path
 import constants
 import CDROM
 import fcntl
+import glob
 import util
 import netutil
 from util import dev_null
@@ -532,272 +533,163 @@ def probeDisk(device, justInstall = False):
     return (boot, root, state, storage, logs)
 
 
-class IscsiDeviceException(Exception):
-    pass
-
 # Keep track of iscsi disks we have logged into
 iscsi_disks = []
+# Keep track of NICs reserved for iSCSI boot
+ibft_reserved_nics = set()
 
-# Return True if this is an iscsi device that we have previously logged into
+
+def get_initiator_name():
+    """Return the iSCSI initiator name from the iBFT."""
+
+    with open('%s/initiator/initiator-name' % constants.SYSFS_IBFT_DIR, 'r') as f:
+        return f.read().strip()
+
+
 def is_iscsi(device):
+    """Return True if this is an iSCSI device."""
 
     # If this is a multipath device check whether the first slave is iSCSI
     if use_mpath:
         slaves = getDeviceSlaves(device)
         if slaves:
-            device = slaves[0]        
-    
+            device = slaves[0]
+
     major, minor = getMajMin(device)
-    
+
     for d in iscsi_disks:
         try:
-            if (major,minor) == getMajMin(d):
+            if (major, minor) == getMajMin(d):
                 return True
         except:
             pass
 
     return False
 
-def iscsi_get_sid(targetip, iqn):
-    "Get the Session ID corresponding to an IQN to which we are logged in"
-    rv, out = util.runCmd2([ 'iscsiadm', '-m', 'session' ], with_stdout=True)
-    assert(rv == 0)
-    lines = out.strip().split('\n')
-    regex = re.compile('^tcp: \\[(\\d+)\\] ([^:]+):([^,]+),[^ ]+ ([^ ]+).*$')
-    tuples = map(lambda line: regex.match(line).groups(), lines)
-    tuples = filter(lambda entry: entry[1] == targetip and entry[3] == iqn, tuples)
-    assert(len(tuples) == 1)
-    sid = int(tuples[0][0])
-    return sid
 
-def iscsi_get_sessions():
-    "Get information about each active iSCSI session"
-    rv, out = util.runCmd2([ 'iscsiadm', '-m', 'session' ], with_stdout=True)
-    assert(rv == 0)
-    lines = out.strip().split('\n')
-    regex = re.compile(r'^tcp: \[(\d+)\] ([^:]+):([^,]+),([^ ]+) ([^ ]+).*$')
-
-    # List of tuples (sid, target_ip, port, target_port_group_tag, iqn)
-    return map(lambda line: regex.match(line).groups(), lines)
-
-def rfc4173_to_disk(rfc4173_spec):
-    "Get the disk (e.g. '/dev/sdb') corresponding to a LUN on an IQN to which we are logged in"
-    try:
-        parts = rfc4173_spec.split(':',5)
-        assert(parts[0] == "iscsi")
-        targetip = parts[1]
-        lun = parts[4] and int(parts[4]) or 0        
-        iqn = parts[5]
-    except:
-        raise IscsiDeviceException, "Cannot parse spec %s" % rfc4173_spec
-    
-    # Retry this a few times since it may take awhile for the device name to
-    # appear in the iscsiadm output.
-    retry = 10
-    while retry > 0:
-        sid = iscsi_get_sid(targetip, iqn)
-        rv, out = util.runCmd2([ 'iscsiadm', '-m', 'session', '-r', str(sid), '-P', '3' ], with_stdout=True)
-        assert(rv == 0)
-        lines = out.strip().split('\n')
-        regex = re.compile('^\\s*\\w+ Channel \\d+ Id \\d+ Lun: %d$' % lun)
-        while lines:
-            line = lines.pop(0)
-            if regex.match(line):
-                if not lines:
-                    break
-                # next line says what the disk is called!
-                line = lines.pop(0)
-                regex2 = re.compile('^\\s*Attached scsi disk (\\w+)\\s+.*$')
-                match = regex2.match(line)
-                assert match != None
-                return '/dev/' + match.groups()[0]
-        time.sleep(1)
-        retry -= 1
-    raise Exception, "Could not find iscsi disk with IQN %s and lun %d" % (iqn,lun)
-            
-
-def attach_rfc4173(iname, rfc4173_spec):
-    """ Attach a disk given an initiator name, and spec in the following format:
-     "iscsi:"<targetip>":"<protocol>":"<port>":"<LUN>":"<targetname>
-
-     return disk, e.g. "/dev/sdb"
-    """
-    try:
-        parts = rfc4173_spec.split(':',5)
-        assert(parts[0] == "iscsi")
-        targetip = parts[1]
-        port = parts[3]
-        lun = parts[4] and int(parts[4]) or 0        
-        iqn = parts[5]
-    except:
-        raise IscsiDeviceException, "Cannot parse spec %s" % rfc4173_spec
-    
-    if port:
-        targetip += ':%s' % port
-
-    # Attach to disk
-    if not os.path.exists("/etc/iscsi/initiatorname.iscsi"):
-        open("/etc/iscsi/initiatorname.iscsi","w").write("InitiatorName=%s"  % iname)
-
-    rv = util.runCmd2([ '/sbin/modprobe', 'iscsi_tcp' ])
+def configure_ibft_nic(target_ip, iface, ip, nm, gw):
+    prefix = sum([bin(int(i)).count('1') for i in nm.split('.')])
+    rv = util.runCmd2(['ip', 'addr', 'add', '%s/%s' % (ip, prefix), 'dev', iface])
     if rv:
-        raise RuntimeError, "/sbin/modprobe iscsi_tcp failed"
-    try:
-        if not util.pidof('iscsid'):
-            fd = open("/etc/iscsi/initiatorname.iscsi", "w")
-            fd.write("InitiatorName=%s" % iname)
-            fd.close()
-        rv = util.runCmd2([ '/sbin/iscsiadm', '-m', 'discovery', '-t', 'sendtargets', '-p', targetip])
-        if rv: 
-            raise RuntimeError, "/sbin/iscsiadm -m discovery failed"
-        rv = util.runCmd2([ '/sbin/iscsiadm', '-m', 'node', '-T', iqn, '-p', targetip, '-l']) # login
-        if rv:
-            raise RuntimeError, "/sbin/iscsiadm -m node -l failed"
-    finally:
-        util.runCmd2(util.udevsettleCmd())           # update /dev
+        raise RuntimeError('Failed to initialize NIC for iSCSI')
 
-    disk = rfc4173_to_disk(rfc4173_spec)
-    iscsi_disks.append(disk)
-
-    return disk
-
-
-class Struct:
-    def __init__(self, *inArgs, **inKeywords):
-        for k, v in inKeywords.items():
-            setattr(self, k, v)
-
-sysfs_ibft_dir = "/sys/firmware/ibft"
-def have_ibft():
-    """ Determine if an iBFT is present """
-    rv = util.runCmd2([ '/sbin/modprobe', 'iscsi_ibft' ])
-    if rv:
-        raise RuntimeError, "/sbin/modprobe iscsi_ibft failed"
-    if os.path.isdir("%s/initiator" % sysfs_ibft_dir):
-        xelogging.log("process_ibft: iBFT found.")
-        return True
-    xelogging.log("process_ibft: No iBFT found.")
-    return False
-    
-
-def read_ibft():
-    """ Read in the iBFT (iSCSI Boot Firmware Table) from /sys/firmware/ibft/
-    and return an initiator name and a list of target configs.
-    """
-
-    flags = int(open("%s/initiator/flags" % sysfs_ibft_dir).read())
-    if (flags & 3) != 3:
-        xelogging.log("process_ibft: Initiator block in iBFT not valid or not selected.")
-        return
-    try:
-        iname = open("%s/initiator/initiator-name" % sysfs_ibft_dir).read()
-    except:
-        raise RuntimeError, "No initiator name in iBFT"
-
-    targets = [ d for d in os.listdir(sysfs_ibft_dir) if d.startswith("target") ]
-    netdevs = [ (d, open('/sys/class/net/%s/address' % d).read().strip()) 
-                for d in os.listdir('/sys/class/net') 
-                if d.startswith('eth') ]
-    target_configs = []
-    for d in targets:
-        flags = int(open("%s/%s/flags" % (sysfs_ibft_dir,d)).read())
-        if (flags & 3) != 3:
-            xelogging.log("process_ibft: %s block in iBFT not valid or not selected." %d)
-            continue
-
-        # Find out details of target
-        tgtip = open("%s/%s/ip-addr" % (sysfs_ibft_dir,d)).read().strip()
-        lun = open("%s/%s/lun" % (sysfs_ibft_dir,d)).read().strip()
-        lun = reduce(lambda total,i: (total*10)+int(lun[7-i]), range(8))
-        nicid = open("%s/%s/nic-assoc" % (sysfs_ibft_dir,d)).read().strip()
-        nicid = int(nicid)
-        port = open("%s/%s/port" % (sysfs_ibft_dir,d)).read().strip()
-        port = int(port)
-        iqn = open("%s/%s/target-name" % (sysfs_ibft_dir,d)).read().strip()
-            
-        # Find out details of NIC used with this target
-        hwaddr = open("%s/ethernet%d/mac" % (sysfs_ibft_dir,nicid)).read().strip()
-        ip = open("%s/ethernet%d/ip-addr" % (sysfs_ibft_dir,nicid)).read().strip()
-        if not os.path.isfile("%s/ethernet%d/gateway" % (sysfs_ibft_dir,nicid)):
-            gw = None
-        else:
-            gw = open("%s/ethernet%d/gateway" % (sysfs_ibft_dir,nicid)).read().strip()
-        nm = open("%s/ethernet%d/subnet-mask" % (sysfs_ibft_dir,nicid)).read().strip()
-        flags = int(open("%s/ethernet%d/flags" % (sysfs_ibft_dir,nicid)).read())
-        assert (flags & 3) == 3
-            
-        mac = open('%s/ethernet%d/mac' % (sysfs_ibft_dir,nicid)).read().strip()
-        try:
-            iface = filter(lambda pair: pair[1] == mac, netdevs)[0][0]
-        except:
-            raise RuntimeError, "Found mac %s in iBFT but cannot find matching NIC" % mac
-
-        target_configs.append(Struct(iface=iface, ip=ip, nm=nm, gw=gw, 
-                                     tgtip=tgtip, port=port, lun=lun, iqn=iqn))
-    return iname, target_configs
-
-
-ibft_reserved_nics = []
-def process_ibft(ui, interactive):
-    """ Bring up any disks that the iBFT should be attached, and reserve the NICs that
-    it says should be used for iSCSI
-    """
-    
-    if not have_ibft():
-        return
-
-    try: 
-        iname, target_configs = read_ibft()
-    except:
-        # only raise exception if user decides to proceed
-        if ui and interactive:
-            msg = "Found iSCSI Boot Firmware Table\n\nAttach to disks specified in iBFT?"
-            button = ButtonChoiceWindowEx(ui.screen, "Attach iSCSI disks" , msg, ['Yes', 'No'])
-            if button == 'no':
-                return
-        raise
+    if netutil.network(ip, nm) == netutil.network(target_ip, nm):
+        # Same subnet, don't use the gateway
+        rv = util.runCmd2(['ip', 'route', 'add', target_ip, 'dev', iface])
+    elif gw:
+        rv = util.runCmd2(['ip', 'route', 'add', target_ip, 'dev', iface, 'via', gw])
     else:
-        # Do nothing if the iBFT contains no valid targets
-        if len(target_configs) == 0:
-            xelogging.log("process_ibft: No valid target configs found in iBFT")
-            return
-        
-        # If interactive, ask user if he wants to proceed
-        if ui and interactive:
-            nics = list(set([ conf.iface for conf in target_configs ]))
-            nics.sort()
-            msg = \
-                "Found iSCSI Boot Firmware Table\n\nAttach to disks specified in iBFT?\n\n" \
-                "This will reserve %s for iSCSI disk access.  Reserved NICs are not available " \
-                "for use as the management interface or for use by virtual machines."  % " and ".join(nics)
-            button = ButtonChoiceWindowEx(ui.screen, "Attach iSCSI disks" , msg, ['Yes', 'No'], width=60)
-            if button == 'no':
-                return
-    
-    # Bring up the targets
-    for conf in target_configs:
-        # Bring up interface
-        if conf.iface not in ibft_reserved_nics:
-            rv = util.runCmd2(['ifconfig', conf.iface, conf.ip, 'netmask', conf.nm])
-            assert rv == 0
-            ibft_reserved_nics.append(conf.iface)
-            xelogging.log("process_ibft: reserving %s for access to iSCSI disk" % conf.iface)
-            
-        # Pin tgtip to this interface
-        if netutil.network(conf.ip, conf.nm) == netutil.network(conf.tgtip, conf.nm):
-            rv = util.runCmd2(['ip', 'route', 'add', conf.tgtip, 'dev', conf.iface])
-        else:
-            assert conf.gw
-            rv = util.runCmd2(['ip', 'route', 'add', conf.tgtip, 'dev', conf.iface, 'via', conf.gw])
+        raise RuntimeError('A gateway is needed to initialize NIC for iSCSI')
 
-        # Attach to target (this creates new nodes /dev)
-        spec = "iscsi:%s::%d:%d:%s" % (conf.tgtip, conf.port, conf.lun, conf.iqn)
+    if rv:
+        raise RuntimeError('Failed to initialize NIC for iSCSI')
+
+
+# Set up the NICs according to the iBFT. It should be possible to use
+# iscsistart -N to do this but that currently doesn't work with NICs which
+# support offload (e.g. bnx2) even when offload is not being used.
+def setup_ibft_nics():
+    mac_map = {}
+    netdevs = netutil.scanConfiguration()
+    for name in netdevs:
+        mac_map[netdevs[name].hwaddr] = name
+    xelogging.log('NET: %s %s' % (repr(netdevs), repr(mac_map)))
+
+    for t in glob.glob(os.path.join(constants.SYSFS_IBFT_DIR, 'target*')):
+        with open(os.path.join(t, 'ip-addr'), 'r') as f:
+            target_ip = f.read().strip()
+        with open(os.path.join(t, 'nic-assoc'), 'r') as f:
+            nic_assoc = f.read().strip()
+
+        e = os.path.join(constants.SYSFS_IBFT_DIR, 'ethernet' + nic_assoc)
+        with open(os.path.join(e, 'mac'), 'r') as f:
+            mac = f.read().strip()
+        with open(os.path.join(e, 'ip-addr'), 'r') as f:
+            ip = f.read().strip()
         try:
-            disk = attach_rfc4173(iname, spec)
-        except Exception as e:
-            xelogging.log_exception(e)
-            raise RuntimeError, "Could not attach to iSCSI LUN %s" % spec
-        xelogging.log("process_ibft: attached iSCSI disk %s." % disk)
+            with open(os.path.join(e, 'gateway'), 'r') as f:
+                gw = f.read().strip()
+        except IOError as e:
+            if e.errno == errno.ENOENT:
+                gw = None
+            else:
+                raise
+        with open(os.path.join(e, 'subnet-mask'), 'r') as f:
+            nm = f.read().strip()
+        with open(os.path.join(e, 'flags'), 'r') as f:
+            flags = int(f.read().strip())
+            assert (flags & 3) == 3
+
+        if mac not in mac_map:
+            raise RuntimeError('Found mac %s in iBFT but cannot find matching NIC' % mac)
+
+        configure_ibft_nic(target_ip, mac_map[mac], ip, nm, gw)
+        ibft_reserved_nics.add(mac_map[mac])
+
+
+def process_ibft(ui, interactive):
+    """Process the iBFT.
+
+    Bring up any disks that the iBFT says should be attached, and reserve the
+    NICs that it says should be used for iSCSI.
+    """
+
+    util.runCmd2([ '/sbin/iscsiadm', '-k', '0'])
+    rv = util.runCmd2(['iscsid'])
+    if rv:
+        raise RuntimeError('Failed to start iscsid')
+
+    nics = set()
+    targets = 0
+    rv, out = util.runCmd2(['iscsistart', '-f'], with_stdout=True)
+    if rv:
+        xelogging.log("process_ibft: No valid iBFT found.")
+        return
+    for line in out.split('\n'):
+        m = re.match('iface.net_ifacename = (.*)$', line.strip())
+        if m:
+            nics.add(m.group(1))
+        m = re.match(r'node.conn\[\d+\].address = ', line.strip())
+        if m:
+            targets += 1
+
+    # Do nothing if the iBFT contains no valid targets
+    if targets == 0:
+        xelogging.log("process_ibft: No valid target configs found in iBFT")
+        return
+
+    # If interactive, ask user if he wants to proceed
+    if ui and interactive:
+        msg = \
+            "Found iSCSI Boot Firmware Table\n\nAttach to disks specified in iBFT?\n\n" \
+            "This will reserve %s for iSCSI disk access.  Reserved NICs are not available " \
+            "for use as the management interface or for use by virtual machines."  % " and ".join(sorted(nics))
+        button = ButtonChoiceWindowEx(ui.screen, "Attach iSCSI disks" , msg, ['Yes', 'No'], width=60)
+        if button == 'no':
+            return
+
+    setup_ibft_nics()
+
+    # Attach disks
+    rv = util.runCmd2(['iscsistart', '-b'])
+    if rv:
+        raise RuntimeError('Failed to attach iSCSI target disk(s)')
+
+    util.runCmd2(util.udevsettleCmd())
+    time.sleep(5)
+
+    rv, out = util.runCmd2([ 'iscsiadm', '-m', 'session', '-P', '3' ],
+                           with_stdout=True)
+    if rv:
+        raise RuntimeError('Failed to find attached disks')
+    for line in out.split('\n'):
+        m = re.match(r'\s*Attached scsi disk (\w+)\s+.*$', line)
+        if m:
+            iscsi_disks.append('/dev/' + m.group(1))
+
+    xelogging.log('process_ibft: iSCSI Disks: %s' % (str(iscsi_disks),))
+    xelogging.log('process_ibft: Reserved NICs: %s' % (str(list(ibft_reserved_nics)),))
+
 
 def release_ibft_disks():
     if util.pidof('iscsid'):

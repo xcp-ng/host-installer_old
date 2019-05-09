@@ -3,6 +3,16 @@ Commandline Parameters
 
 All parameters are optional unless otherwise specified.
 
+When passing a script or answerfile, a URL is expected unless otherwise
+specified. For scripts available locally to the installer, use a `file://`
+prefix.
+
+Scripts are expected to begin with a shebang, with the following as accepted
+interpreters:
+  /bin/sh
+  /bin/bash
+  /usr/bin/python
+
 
 Startup
 -------
@@ -34,9 +44,30 @@ Startup
 
   make-ramdisk=dev
 
-    Create a ramdisk of sufficient size on /tmp/ramdisk and copy the
-    contents of the device into it. Multiple instances may be given
-    but only the first to succeed will mounted.
+    Create a ramdisk of sufficient size on /tmp/ramdisk and copy the contents
+    of the device into it. Multiple instances may be given but only the first to
+    succeed will be mounted.
+
+    If the filesystem on the device contains a top level directory named
+    "xsinst" then the ramdisk will be populated with the unpacked contents of
+    any *.iso file in xsinst.
+
+    If the ISO is a XenServer install ISO (i.e. contains a .treeinfo file), its
+    contents will be copied to the top level of the filesystem in the ramdisk.
+
+    Any other ISOs will be copied to the a directory named after the ISO file,
+    (e.g. test1.iso will be extracted to test1/).
+
+    Any non-ISO files/dirs in xsinst get copied to the top level of the
+    filesystem in the ramdisk. Any files/dirs outside of the "xsinst" directory
+    will be ignored.
+
+
+  xsinst=path
+
+    When using make-ramdisk with the "xsinst" support described above, this
+    parameter can be used to override the expected directory name. Note that
+    this parameter *must* preceed make-ramdisk on the command line.
 
 
   mount=dev[:fstype[:opt]]:mnt
@@ -105,7 +136,7 @@ Installer
 
   --answerfile_generator=script
 
-    Run script and use the output of it as an answerfile.
+    Retrieve script, run it and use the output of it as an answerfile.
 
 
   --answerfile_device[D]=eth|mac|all | --network_device=eth|mac|all
@@ -178,6 +209,11 @@ Installer
     Revert to DOS partitioning for clean installs.
 
 
+  --legacy-partitions
+
+    Use the old partition layout for clean installs.
+
+
   --virtual
 
     Installer is running in a VM.
@@ -186,3 +222,8 @@ Installer
   --disable-uefi
 
     Install in legacy boot mode. Only present in 7.0.
+
+
+  --cc-preparations
+
+    Prepare configuration for common criteria security.

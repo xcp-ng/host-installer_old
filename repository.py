@@ -107,7 +107,7 @@ exactarch=1
 obsoletes=1
 gpgcheck=0
 plugins=0
-installonly_limit=5
+installonlypkgs=
 distroverpkg=xenserver-release
 reposdir=/tmp/repos
 """ % _cachedir
@@ -385,7 +385,7 @@ obsoletes=1
 gpgcheck=0
 plugins=0
 group_command=compat
-installonly_limit=5
+installonlypkgs=
 distroverpkg=xenserver-release
 reposdir=/tmp/repos
 diskspacecheck=0

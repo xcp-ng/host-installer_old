@@ -161,6 +161,7 @@ class Answerfile:
         results.update(self.parseNSConfig())
         results.update(self.parseTimeConfig())
         results.update(self.parseKeymap())
+        results.update(self.parseServices())
 
         return results
 
@@ -478,4 +479,23 @@ class Answerfile:
         nodes = getElementsByTagName(self.top_node, ['ui-confirmation-prompt'])
         if len(nodes) > 0:
             results['ui-confirmation-prompt'] = bool(getText(nodes[0]))
+        return results
+
+    def parseServices(self):
+        results = {}
+        services = {}
+        serviceNodes = getElementsByTagName(self.top_node, ['service'])
+        servicesSeen = set()
+        for sn in serviceNodes:
+            service = getStrAttribute(sn, ['name'], mandatory = True)
+            if service in servicesSeen:
+                raise AnswerfileException, "Multiple entries for service %s" % service
+            servicesSeen.add(service)
+            state = getStrAttribute(sn, ['state'], mandatory = True)
+            if not state in ('enabled', 'disabled'):
+                raise AnswerfileException, "Invalid state for service %s: %s" % (service, state)
+            services[service] = state
+        if services:
+             # replace the default value
+             results['services'] = services
         return results
