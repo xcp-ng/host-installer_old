@@ -138,12 +138,14 @@ ANSWERFILE_GENERATOR_PATH = '/tmp/answerfile_generator'
 SCRIPTS_DIR = "/tmp/scripts"
 EXTRA_SCRIPTS_DIR = "/tmp/extra-scripts"
 defaults_data_file = '/opt/xensource/installer/defaults.json'
+SYSFS_IBFT_DIR = "/sys/firmware/ibft"
 
 # host filesystem - always absolute paths from root of install
 # and never start with a '/', so they can be used safely with
 # os.path.join.
 ANSWERS_FILE = "upgrade_answers"
 INVENTORY_FILE = "etc/xensource-inventory"
+XENCOMMONS_FILE = "etc/sysconfig/xencommons"
 OLD_BLOB_DIRECTORY = "var/xapi/blobs"
 BLOB_DIRECTORY = "var/lib/xcp/blobs"
 
@@ -153,12 +155,8 @@ INTERNAL_REPOS = [MAIN_XS_REPOSITORY_NAME, "xs:xenserver-transfer-vm", "xs:linux
 
 FIRSTBOOT_DATA_DIR = "etc/firstboot.d/data"
 INSTALLED_REPOS_DIR = "etc/xensource/installed-repos"
-OLD_DBCACHE = "var/xapi/network.dbcache"
-DBCACHE = "var/lib/xcp/network.dbcache"
-OLD_NETWORK_DB = "var/xapi/networkd.db"
 NETWORK_DB = "var/lib/xcp/networkd.db"
 NETWORKD_DB = "usr/bin/networkd_db"
-OLD_NETWORKD_DB = "opt/xensource/libexec/networkd_db"
 NET_SCR_DIR = "etc/sysconfig/network-scripts"
 OLD_XAPI_DB = 'var/xapi/state.db'
 XAPI_DB = 'var/lib/xcp/state.db'
@@ -180,3 +178,10 @@ BOOT_MENU_TIMEOUT = 50
 
 # timeout used for multipath iscsi
 MPATH_ISCSI_TIMEOUT = 15
+
+# prepare configuration for common criteria security
+CC_PREPARATIONS = False
+
+# list of dom0 services that will be disabled for common criteria preparation,
+# and these can be overridden by answer file
+SERVICES = ["sshd"]

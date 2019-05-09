@@ -177,9 +177,9 @@ class Upgrader(object):
 
 
 class ThirdGenUpgrader(Upgrader):
-    """ Upgrader class for series 5 Retail products. """
+    """ Upgrader class for series 7+ Retail products. """
     upgrades_product = version.PRODUCT_NAME
-    upgrades_versions = [ (product.XENSERVER_6_0_0, product.THIS_PLATFORM_VERSION) ]
+    upgrades_versions = [ (product.XENSERVER_MIN_VERSION, product.THIS_PLATFORM_VERSION) ]
     upgrades_variants = [ 'Retail' ]
     requires_backup = True
     optional_backup = False
@@ -266,8 +266,10 @@ class ThirdGenUpgrader(Upgrader):
                     if self.storage_type == 'ext':
                         _, sr_uuid = self.vgs_output.split('-', 1)
                         util.runCmd2(['lvcreate', '-n', sr_uuid, '-l', '100%VG', self.vgs_output])
-                        if util.runCmd2(['mkfs.ext3', '-F', '/dev/' + self.vgs_output + '/' + sr_uuid]) != 0:
-                            raise RuntimeError, "Backup: Failed to format filesystem on %s" % storage_part
+                        try:
+                            util.mkfs('ext3', '/dev/' + self.vgs_output + '/' + sr_uuid, ['-F'])
+                        except Exception as e:
+                            raise RuntimeError("Backup: Failed to format filesystem on %s: %s" % (storage_part, e))
 
                 return new_partition_layout
 
@@ -282,22 +284,6 @@ class ThirdGenUpgrader(Upgrader):
                     else:
                         new_partition_layout = True
                         return new_partition_layout
-
-                # Otherwise, replace the root partition with a boot partition and
-                # a smaller root partition.
-                part = tool.getPartition(primary_partnum)
-                tool.deletePartition(primary_partnum)
-
-                boot_size = constants.boot_size * 2**20
-                root_size = part['size'] * tool.sectorSize - boot_size
-                if target_boot_mode == constants.TARGET_BOOT_MODE_UEFI:
-                    tool.createPartition(tool.ID_EFI_BOOT, sizeBytes = boot_size, startBytes = part['start'] * tool.sectorSize, number = boot_partnum)
-                else:
-                    tool.createPartition(tool.ID_BIOS_BOOT, sizeBytes = boot_size, startBytes = part['start'] * tool.sectorSize, number = boot_partnum)
-
-                tool.createPartition(part['id'], sizeBytes = root_size, number = primary_partnum, order = primary_partnum + 1)
-
-                tool.commit(log = True)
 
     doBackupArgs = ['primary-disk', 'backup-partnum', 'boot-partnum', 'storage-partnum', 'logs-partnum', 'partition-table-type']
     doBackupStateChanges = []
@@ -334,8 +320,10 @@ class ThirdGenUpgrader(Upgrader):
 
         # format the backup partition:
         backup_partition = partitionDevice(target_disk, backup_partnum)
-        if util.runCmd2(['mkfs.ext3', backup_partition]) != 0:
-            raise RuntimeError, "Backup: Failed to format filesystem on %s" % backup_partition
+        try:
+            util.mkfs('ext3', backup_partition)
+        except Exception as e:
+            raise RuntimeError("Backup: Failed to format filesystem on %s: %s" % (backup_partition, e))
         progress_callback(10)
 
         # copy the files across:
@@ -400,8 +388,7 @@ class ThirdGenUpgrader(Upgrader):
                               'etc/xensource/xapi-ssl.pem']
         self.restore_list.append({'dir': 'etc/ssh', 're': re.compile(r'.*/ssh_host_.+')})
 
-        self.restore_list += [ 'etc/sysconfig/network', constants.DBCACHE ]
-        self.restore_list.append({'src': constants.OLD_DBCACHE, 'dst': constants.DBCACHE})
+        self.restore_list += [ 'etc/sysconfig/network']
         self.restore_list.append({'dir': 'etc/sysconfig/network-scripts', 're': re.compile(r'.*/ifcfg-[a-z0-9.]+')})
 
         self.restore_list += [constants.XAPI_DB, 'etc/xensource/license']
@@ -439,7 +426,6 @@ class ThirdGenUpgrader(Upgrader):
         self.restore_list += [{'dir': 'root/.ssh'}]
 
         # CA-82709: preserve networkd.db for Tampa upgrades
-        self.restore_list.append({'src': constants.OLD_NETWORK_DB, 'dst': constants.NETWORK_DB})
         self.restore_list.append(constants.NETWORK_DB)
 
         # CP-9653: preserve Oracle 5 blacklist
@@ -455,6 +441,8 @@ class ThirdGenUpgrader(Upgrader):
 
         # CA-195388: Preserve /etc/mdadm.conf across upgrades
         self.restore_list += ['etc/mdadm.conf']
+
+        self.restore_list += ['var/lib/xcp/verify_certificates']
 
     completeUpgradeArgs = ['mounts', 'installation-to-overwrite', 'primary-disk', 'backup-partnum', 'net-admin-interface', 'net-admin-bridge', 'net-admin-configuration']
     def completeUpgrade(self, mounts, prev_install, target_disk, backup_partnum, admin_iface, admin_bridge, admin_config):
@@ -478,69 +466,6 @@ class ThirdGenUpgrader(Upgrader):
             # CA-82901 - convert any old style ppn referenced to new style ppn references
             util.runCmd2(['sed', r's/pci\([0-9]\+p[0-9]\+\)/p\1/g', '-i',
                           os.path.join(mounts['root'], 'etc/sysconfig/network-scripts/interface-rename-data/static-rules.conf')])
-
-        # EA-1069: create interface-rename state from old xapi database if it doesnt currently exist (static-rules.conf)
-        else:
-            if not os.path.exists(os.path.join(mounts['root'], 'etc/sysconfig/network-scripts/interface-rename-data/.from_install/')):
-                os.makedirs(os.path.join(mounts['root'], 'etc/sysconfig/network-scripts/interface-rename-data/.from_install/'), 0775)
-
-            from xcp.net.ifrename.static import StaticRules
-            sr = StaticRules()
-            sr.path = os.path.join(mounts['root'], 'etc/sysconfig/network-scripts/interface-rename-data/static-rules.conf')
-            sr.save()
-            sr.path = os.path.join(mounts['root'], 'etc/sysconfig/network-scripts/interface-rename-data/.from_install/static-rules.conf')
-            sr.save()
-
-            from xcp.net.biosdevname import all_devices_all_names
-            from xcp.net.ifrename.dynamic import DynamicRules
-
-            devices = all_devices_all_names()
-            dr = DynamicRules()
-
-            # this is a dirty hack but I cant think of much better
-            backup_volume = partitionDevice(target_disk, backup_partnum)
-            tds = util.TempMount(backup_volume, 'upgrade-src-', options = ['ro'])
-            try:
-                dbcache_path = constants.DBCACHE
-                if not os.path.exists(os.path.join(tds.mount_point, dbcache_path)):
-                    dbcache_path = constants.OLD_DBCACHE
-                dbcache = open(os.path.join(tds.mount_point, dbcache_path), "r")
-                mac_next = False
-                eth_next = False
-
-                for line in ( x.strip() for x in dbcache ):
-
-                    if mac_next:
-                        dr.lastboot.append([line.upper()])
-                        mac_next = False
-                        continue
-
-                    if eth_next:
-                        # CA-77436 - Only pull real eth devices from network.dbcache, not bonds or other constructs
-                        for bdev in devices.values():
-                            if line.startswith("eth") and bdev.get('Assigned MAC', None) == dr.lastboot[-1][0] and 'Bus Info' in bdev:
-                                dr.lastboot[-1].extend([bdev['Bus Info'], line])
-                                break
-                        else:
-                            del dr.lastboot[-1]
-                        eth_next = False
-                        continue
-
-                    if line == "<MAC>":
-                        mac_next = True
-                        continue
-
-                    if line == "<device>":
-                        eth_next = True
-
-                dbcache.close()
-            finally:
-                tds.unmount()
-
-            dr.path = os.path.join(mounts['root'], 'etc/sysconfig/network-scripts/interface-rename-data/dynamic-rules.json')
-            dr.save()
-            dr.path = os.path.join(mounts['root'], 'etc/sysconfig/network-scripts/interface-rename-data/.from_install/dynamic-rules.json')
-            dr.save()
 
         net_dict = util.readKeyValueFile(os.path.join(mounts['root'], 'etc/sysconfig/network'))
         if 'NETWORKING_IPV6' not in net_dict:

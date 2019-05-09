@@ -34,6 +34,7 @@ import xcp.bootloader as bootloader
 import netinterface
 import tui.repo
 import xcp.dom0
+from xcp.version import Version
 
 # Product version and constants:
 import version
@@ -171,11 +172,12 @@ def getFinalisationSequence(ans):
         Task(configureNetworking, A(ans, 'mounts', 'net-admin-interface', 'net-admin-bridge', 'net-admin-configuration', 'manual-hostname', 'manual-nameservers', 'network-hardware', 'preserve-settings', 'network-backend'), []),
         Task(prepareSwapfile, A(ans, 'mounts', 'primary-disk', 'swap-partnum', 'disk-label-suffix'), []),
         Task(writeFstab, A(ans, 'mounts', 'target-boot-mode', 'primary-disk', 'logs-partnum', 'swap-partnum', 'disk-label-suffix'), []),
-        Task(enableAgent, A(ans, 'mounts', 'network-backend'), []),
+        Task(enableAgent, A(ans, 'mounts', 'network-backend', 'services'), []),
         Task(writeInventory, A(ans, 'installation-uuid', 'control-domain-uuid', 'mounts', 'primary-disk',
                                'backup-partnum', 'storage-partnum', 'guest-disks', 'net-admin-bridge',
-                               'branding', 'net-admin-configuration', 'host-config', 'new-partition-layout', 'partition-table-type'), []),
-        Task(configureISCSITimeout, A(ans, 'mounts', 'primary-disk'), []),
+                               'branding', 'net-admin-configuration', 'host-config', 'new-partition-layout', 'partition-table-type', 'install-type'), []),
+        Task(writeXencommons, A(ans, 'control-domain-uuid', 'mounts'), []),
+        Task(configureISCSI, A(ans, 'mounts', 'primary-disk'), []),
         Task(mkinitrd, A(ans, 'mounts', 'primary-disk', 'primary-partnum',
                               'fcoe-interfaces'), []),
         Task(prepFallback, A(ans, 'mounts', 'primary-disk', 'primary-partnum'), []),
@@ -278,21 +280,15 @@ def executeSequence(sequence, seq_name, answers, ui, cleanup):
             doCleanup(answers['cleanup'])
             del answers['cleanup']
 
-def reorderRepos(repos):
-    """Place the main installation repository at the head of the list."""
-
-    for i, repo in enumerate(repos):
-        if repo.identifier() == MAIN_REPOSITORY_NAME:
-            repos[0], repos[i] = repos[i], repos[0]
-            break
-
 def performInstallation(answers, ui_package, interactive):
     xelogging.log("INPUT ANSWERS DICTIONARY:")
     prettyLogAnswers(answers)
     xelogging.log("SCRIPTS DICTIONARY:")
     prettyLogAnswers(scripts.script_dict)
 
-    dom0_mem = xcp.dom0.default_memory(hardware.getHostTotalMemoryKB()) / 1024
+    dom0_mem = xcp.dom0.default_memory_for_version(
+                    hardware.getHostTotalMemoryKB(),
+                    Version.from_string(version.PLATFORM_VERSION)) / 1024
     dom0_vcpus = xcp.dom0.default_vcpus(hardware.getHostTotalCPUs(), dom0_mem)
     default_host_config = { 'dom0-mem': dom0_mem,
                             'dom0-vcpus': dom0_vcpus,
@@ -307,9 +303,12 @@ def performInstallation(answers, ui_package, interactive):
         try:
             answers.update(answers['installation-to-overwrite'].readSettings())
 
-            # update the number of dom0 vcpus
-            # taking the amount of ram from previous installation into account
+            # Use the new default amount of RAM as long as it doesn't result in
+            # a decrease from the previous installation. Update the number of
+            # dom0 vCPUs since it depends on the amount of RAM assigned.
             if 'dom0-mem' in answers['host-config']:
+                answers['host-config']['dom0-mem'] = max(answers['host-config']['dom0-mem'],
+                                                         default_host_config['dom0-mem'])
                 default_host_config['dom0-vcpus'] = xcp.dom0.default_vcpus(hardware.getHostTotalCPUs(),
                                                                            answers['host-config']['dom0-mem'])
         except Exception, e:
@@ -362,24 +361,38 @@ def performInstallation(answers, ui_package, interactive):
 
     answers['installed-repos'] = {}
 
-    # Use a set since the same repository might exist in multiple locations
-    # or the same location might be listed multiple times.
-    all_repositories = set()
+    # A list needs to be used rather than a set since the order of updates is
+    # important.  However, since the same repository might exist in multiple
+    # locations or the same location might be listed multiple times, care is
+    # needed to ensure that there are no duplicates.
+    all_repositories = []
+
+    def add_repos(all_repositories, repos):
+        """Add repositories to the list, ensuring no duplicates, that the main
+        repository is at the beginning, and that the order of the rest is
+        maintained."""
+
+        for repo in repos:
+            if repo not in all_repositories:
+                if repo.identifier() == MAIN_REPOSITORY_NAME:
+                    all_repositories.insert(0, repo)
+                else:
+                    all_repositories.append(repo)
 
     # A list of sources coming from the answerfile
     if 'sources' in answers_pristine:
         for i in answers_pristine['sources']:
-            all_repositories.update(repository.repositoriesFromDefinition(i['media'], i['address']))
+            repos = repository.repositoriesFromDefinition(i['media'], i['address'])
+            add_repos(all_repositories, repos)
 
     # A single source coming from an interactive install
     if 'source-media' in answers_pristine and 'source-address' in answers_pristine:
-        all_repositories.update(repository.repositoriesFromDefinition(answers_pristine['source-media'], answers_pristine['source-address']))
+        repos = repository.repositoriesFromDefinition(answers_pristine['source-media'], answers_pristine['source-address'])
+        add_repos(all_repositories, repos)
 
     for media, address in answers_pristine['extra-repos']:
-        all_repositories.update(repository.repositoriesFromDefinition(media, address))
-
-    all_repositories = list(all_repositories)
-    reorderRepos(all_repositories)
+        repos = repository.repositoriesFromDefinition(media, address)
+        add_repos(all_repositories, repos)
 
     if all_repositories[0].identifier() != MAIN_REPOSITORY_NAME:
         raise RuntimeError("No main repository found")
@@ -546,10 +559,6 @@ def selectPartitionTableType(disk, install_type, primary_part, create_new_partit
     # partition table type as we are probably chain booting from that.
     if primary_part > 1:
         return tool.partTableType
-
-    # This is a fresh install but we want to preserve old layout
-    if not create_new_partitions:
-        return constants.PARTITION_DOS
 
     # This is a fresh install and we do not need to preserve partition1
     # Use GPT because it is better.
@@ -730,7 +739,7 @@ def getSRPhysDevs(primary_disk, storage_partnum, guest_disks):
 
 def prepareStorageRepositories(mounts, primary_disk, storage_partnum, guest_disks, sr_type):
     
-    if len(guest_disks) == 0:
+    if len(guest_disks) == 0 or constants.CC_PREPARATIONS and sr_type != constants.SR_TYPE_EXT:
         xelogging.log("No storage repository requested.")
         return None
 
@@ -799,13 +808,19 @@ def make_free_space(mount, required):
 
 def createDom0DiskFilesystems(install_type, disk, target_boot_mode, boot_partnum, primary_partnum, logs_partnum, disk_label_suffix):
     if target_boot_mode == TARGET_BOOT_MODE_UEFI:
-        rc, err = util.runCmd2(["mkfs.%s" % bootfs_type, "-n", bootfs_label%disk_label_suffix.upper(), partitionDevice(disk, boot_partnum)], with_stderr = True)
-        if rc != 0:
-            raise RuntimeError, "Failed to create boot filesystem: %s" % err
+        partition = partitionDevice(disk, boot_partnum)
+        try:
+            util.mkfs(bootfs_type, partition,
+                      ["-n", bootfs_label%disk_label_suffix.upper()])
+        except Exception as e:
+            raise RuntimeError("Failed to create boot filesystem: %s" % e)
 
-    rc, err = util.runCmd2(["mkfs.%s" % rootfs_type, "-L", rootfs_label%disk_label_suffix, partitionDevice(disk, primary_partnum)], with_stderr = True)
-    if rc != 0:
-        raise RuntimeError, "Failed to create root filesystem: %s" % err
+    partition = partitionDevice(disk, primary_partnum)
+    try:
+        util.mkfs(rootfs_type, partition,
+                  ["-L", rootfs_label%disk_label_suffix])
+    except Exception as e:
+        raise RuntimeError("Failed to create root filesystem: %s" % e)
 
     tool = PartitionTool(disk)
     logs_partition = tool.getPartition(logs_partnum)
@@ -833,11 +848,11 @@ def createDom0DiskFilesystems(install_type, disk, target_boot_mode, boot_partnum
                     run_mkfs = False
 
         if run_mkfs:
-            rc, err = util.runCmd2(["mkfs.%s" % logsfs_type,
-                                    "-L", logsfs_label % disk_label_suffix,
-                                    partition], with_stderr=True)
-            if rc != 0:
-                raise RuntimeError("Failed to create logs filesystem: %s" % err)
+            try:
+                util.mkfs(logsfs_type, partition,
+                          ["-L", logsfs_label % disk_label_suffix])
+            except Exception as e:
+                raise RuntimeError("Failed to create logs filesystem: %s" % e)
         else:
             # Ensure enough free space is available
             mount = util.TempMount(partition, 'logs-')
@@ -924,16 +939,16 @@ def __mkinitrd(mounts, partition, package, kernel_version, fcoe_interfaces):
 
 def getXenVersion(rootfs_mount):
     """ Return the xen version by interogating the package version in the chroot """
-    chroot = ['chroot', rootfs_mount, 'rpm', '-q', '--qf', '%{version}', 'xen-hypervisor']
-    rc, out = util.runCmd2(chroot, with_stdout = True)
+    xen_version = ['rpm', '--root', rootfs_mount, '-q', '--qf', '%{version}', 'xen-hypervisor']
+    rc, out = util.runCmd2(xen_version, with_stdout = True)
     if rc != 0:
         return None
     return out
 
 def getKernelVersion(rootfs_mount):
     """ Returns the kernel release (uname -r) of the installed kernel """
-    chroot = ['chroot', rootfs_mount, 'rpm', '-q', '--provides', 'kernel']
-    rc, out = util.runCmd2(chroot, with_stdout = True)
+    kernel_version = ['rpm', '--root', rootfs_mount, '-q', '--provides', 'kernel']
+    rc, out = util.runCmd2(kernel_version, with_stdout = True)
     if rc != 0:
         return None
 
@@ -959,7 +974,7 @@ def configureSRMultipathing(mounts, primary_disk):
         fd.write("MULTIPATHING_ENABLED='False'\n")
     fd.close()
 
-def adjustISCSITimeoutForFile(path, force=False):
+def adjustISCSITimeoutForFile(path):
     iscsiconf = open(path, 'r')
     lines = iscsiconf.readlines()
     iscsiconf.close()
@@ -973,15 +988,34 @@ def adjustISCSITimeoutForFile(path, force=False):
             wrote_key = True
         else:
             iscsiconf.write(line)
-    if not wrote_key and force:
+    if not wrote_key:
         iscsiconf.write("%s = %d\n" % (timeout_key, MPATH_ISCSI_TIMEOUT))
 
     iscsiconf.close()
 
-def configureISCSITimeout(mounts, primary_disk):
-    # Reduce the timeout for ISCSI when using multipath
+def configureISCSI(mounts, primary_disk):
+    if not diskutil.is_iscsi(primary_disk):
+        return
+
+    iname = diskutil.get_initiator_name()
+
+    with open(os.path.join(mounts['root'], 'etc/iscsi/initiatorname.iscsi'), 'w') as f:
+        f.write('InitiatorName=%s\n' % (iname,))
+
+    # Create IQN file for XAPI
+    with open(os.path.join(mounts['root'], 'etc/firstboot.d/data/iqn.conf'), 'w') as f:
+        f.write("IQN='%s'" % iname)
+
+    if util.runCmd2(['chroot', mounts['root'],
+                     'systemctl', 'enable', 'iscsid']):
+        raise RuntimeError("Failed to enable iscsid")
+    if util.runCmd2(['chroot', mounts['root'],
+                     'systemctl', 'enable', 'iscsi']):
+        raise RuntimeError("Failed to enable iscsi")
+
+    # Reduce the timeout when using multipath
     if isDeviceMapperNode(primary_disk):
-        adjustISCSITimeoutForFile("%s/etc/iscsi/iscsid.conf" % mounts['root'], force=True)
+        adjustISCSITimeoutForFile("%s/etc/iscsi/iscsid.conf" % mounts['root'])
 
 def mkinitrd(mounts, primary_disk, primary_partnum, fcoe_interfaces):
     xen_version = getXenVersion(mounts['root'])
@@ -992,54 +1026,6 @@ def mkinitrd(mounts, primary_disk, primary_partnum, fcoe_interfaces):
         raise RuntimeError, "Unable to determine kernel version."
     partition = partitionDevice(primary_disk, primary_partnum)
 
-    if diskutil.is_iscsi(primary_disk):
-
-        # Mkinitrd needs node files so it can extract 
-        # details about the iscsi root disk
-        for session in diskutil.iscsi_get_sessions():
-            src = '/var/lib/iscsi/nodes/%s/%s,%s,%s' % (
-                     session[4], session[1], session[2], session[3])
-            dst = os.path.join(mounts['root'], 'var/lib/iscsi/nodes/%s' % (session[4],))
-            util.assertDir(dst)
-            util.runCmd2(['cp','-a', src, dst])
-
-        # Reduce the timeout for logged-in ISCSI targets when using multipath
-        if isDeviceMapperNode(primary_disk):
-            for root, dirs, files in os.walk(os.path.join(dst, 'nodes')):
-                for f in files:
-                    adjustISCSITimeoutForFile(os.path.join(root, f))
-
-        src='/etc/iscsi/initiatorname.iscsi'
-        for dst in ['etc/iscsi/initiatorname.iscsi', 'var/lib/iscsi/initiatorname.iscsi']:
-            dst = os.path.join(mounts['root'], dst)
-
-            cmd = ['cp','-a', src, dst]
-            if util.runCmd2(cmd):
-                raise RuntimeError, "Failed to copy initiatorname.iscsi"
-
-        # Extract iname 
-        fd = open(src, "r")
-        iname = fd.read()
-        iname = iname[14:].rstrip()
-        fd.close()
-
-        # Create IQN file for XAPI
-        fd = open(os.path.join(mounts['root'],'etc/firstboot.d/data/iqn.conf'), "w")
-        fd.write("IQN='%s'" % iname)
-        fd.close()
-
-        if isDeviceMapperNode(primary_disk):
-
-            # Multipath failover between iSCSI disks requires iscsid
-            # to be running as it handles the error path
-            cmd = ['chroot', mounts['root'], 
-                   'systemctl', 'enable', 'iscsid']
-            if util.runCmd2(cmd):
-                raise RuntimeError, "Failed to enable iscsid"
-            cmd = ['chroot', mounts['root'],
-                   'systemctl', 'enable', 'iscsi']
-            if util.runCmd2(cmd):
-                raise RuntimeError, "Failed to enable iscsi"
 
     __mkinitrd(mounts, partition, 'kernel-xen', xen_kernel_version, fcoe_interfaces)
 
@@ -1080,7 +1066,7 @@ def buildBootLoaderMenu(mounts, xen_version, xen_kernel_version, boot_config, se
     safe_xen_params = ("nosmp noreboot noirqbalance no-mce no-bootscrub "
                        "no-numa no-hap no-mmcfg iommu=off max_cstate=0 "
                        "nmi=ignore allow_unsafe")
-    xen_mem_params = "crashkernel=192M,below=4G"
+    xen_mem_params = "crashkernel=256M,below=4G"
 
     # CA-103933 - AMD PCI-X Hypertransport Tunnel IOAPIC errata
     rc, out = util.runCmd2(['lspci', '-n'], with_stdout = True)
@@ -1219,7 +1205,7 @@ def setEfiBootEntry(mounts, disk, boot_partnum, branding):
     if rc != 0:
         raise RuntimeError, "Failed to run efibootmgr: %s" % err
     for line in out.splitlines():
-        match = re.match("Boot([0-9a-fA-F]{4})\\*? +%s$" % branding['product-brand'], line)
+        match = re.match("Boot([0-9a-fA-F]{4})\\*? +(?:XenServer|%s)$" % branding['product-brand'], line)
         if match:
             bootnum = match.group(1)
             rc, err = util.runCmd2(["chroot", mounts['root'], "/usr/sbin/efibootmgr",
@@ -1399,10 +1385,6 @@ def writeFstab(mounts, target_boot_mode, primary_disk, logs_partnum, swap_partnu
     if logs_partition:
         fstab.write("LABEL=%s    /var/log         %s     defaults   0  2\n" % (logsfs_label%disk_label_suffix, logsfs_type))
 
-    if os.path.exists(os.path.join(mounts['root'], 'opt/xensource/packages/iso/XenCenter.iso')):
-        fstab.write("/opt/xensource/packages/iso/XenCenter.iso   /var/xen/xc-install   iso9660   loop,ro   0  0\n")
-    fstab.close()
-
     # This should be removed when the packaging CARs are done
     if logs_partition:
         # partition therefore daily rotate
@@ -1410,7 +1392,7 @@ def writeFstab(mounts, target_boot_mode, primary_disk, logs_partnum, swap_partnu
         logrotate.write("BUDGET_MB=4000")
         logrotate.close()
 
-def enableAgent(mounts, network_backend):
+def enableAgent(mounts, network_backend, services):
     if network_backend == constants.NETWORK_BACKEND_VSWITCH:
         util.runCmd2(['chroot', mounts['root'],
                       'systemctl', 'enable',
@@ -1418,6 +1400,13 @@ def enableAgent(mounts, network_backend):
                                    'openvswitch-xapi-sync.service'])
 
     util.assertDir(os.path.join(mounts['root'], constants.BLOB_DIRECTORY))
+
+    # Enable/disable miscellaneous services
+    actMap = {'enabled': 'enable', 'disabled': 'disable'}
+    for (service, state) in services.iteritems():
+        action = 'disable' if constants.CC_PREPARATIONS and state is None else actMap.get(state)
+        if action:
+            util.runCmd2(['chroot', mounts['root'], 'systemctl', action, service + '.service'])
 
 def writeResolvConf(mounts, hn_conf, ns_conf):
     (manual_hostname, hostname) = hn_conf
@@ -1432,7 +1421,6 @@ def writeResolvConf(mounts, hn_conf, ns_conf):
                 dname = hostname[dot + 1:]
                 resolvconf.write("search %s\n" % dname)
                 resolvconf.close()
-            hostname = hostname[:dot]
         except:
             pass
     else:
@@ -1600,8 +1588,17 @@ def configureNetworking(mounts, admin_iface, admin_bridge, admin_config, hn_conf
     netutil.dynamic_rules.path = os.path.join(mounts['root'], 'etc/sysconfig/network-scripts/interface-rename-data/.from_install/dynamic-rules.json')
     netutil.dynamic_rules.save()
 
+def writeXencommons(controlID, mounts):
+    with open(os.path.join(mounts['root'], constants.XENCOMMONS_FILE), "r") as f:
+        contents = f.read()
 
-def writeInventory(installID, controlID, mounts, primary_disk, backup_partnum, storage_partnum, guest_disks, admin_bridge, branding, admin_config, host_config, new_partition_layout, partition_table_type):
+    dom0_uuid_str = ("XEN_DOM0_UUID=%s" % controlID)
+    contents = re.sub('.*XEN_DOM0_UUID=.*', dom0_uuid_str, contents)
+
+    with open(os.path.join(mounts['root'], constants.XENCOMMONS_FILE), "w") as f:
+        f.write(contents)
+
+def writeInventory(installID, controlID, mounts, primary_disk, backup_partnum, storage_partnum, guest_disks, admin_bridge, branding, admin_config, host_config, new_partition_layout, partition_table_type, install_type):
     inv = open(os.path.join(mounts['root'], constants.INVENTORY_FILE), "w")
     if 'product-brand' in branding:
        inv.write("PRODUCT_BRAND='%s'\n" % branding['product-brand'])
@@ -1617,6 +1614,8 @@ def writeInventory(installID, controlID, mounts, primary_disk, backup_partnum, s
        inv.write("COMPANY_NAME='%s'\n" % COMPANY_NAME)
     if COMPANY_NAME_SHORT:
        inv.write("COMPANY_NAME_SHORT='%s'\n" % COMPANY_NAME_SHORT)
+    if COMPANY_PRODUCT_BRAND:
+       inv.write("COMPANY_PRODUCT_BRAND='%s'\n" % COMPANY_PRODUCT_BRAND)
     if BRAND_CONSOLE:
        inv.write("BRAND_CONSOLE='%s'\n" % BRAND_CONSOLE)
     if BRAND_CONSOLE_URL:
@@ -1650,6 +1649,8 @@ def writeInventory(installID, controlID, mounts, primary_disk, backup_partnum, s
         inv.write("MANAGEMENT_ADDRESS_TYPE='IPv6'\n")
     else:
         inv.write("MANAGEMENT_ADDRESS_TYPE='IPv4'\n")
+    if constants.CC_PREPARATIONS and install_type == constants.INSTALL_TYPE_FRESH:
+        inv.write("CC_PREPARATIONS='true'\n")
     inv.close()
 
 def touchSshAuthorizedKeys(mounts):

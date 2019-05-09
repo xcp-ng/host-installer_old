@@ -106,6 +106,7 @@ def go(ui, args, answerfile_address, answerfile_script):
         'root-password': ('pwdhash', '!!'),
         'create-new-partitions': True,  # FALSE = DOS | TRUE = GPT set via command line only with --disable-gpt
         'new-partition-layout': False,  # TRUE = GPT with LOG,BACKUP,ROOT,BOOT,SWAP,SR automatically set during install/upgrade
+        'services': { s: None for s in constants.SERVICES }, # default state for services, example {'sshd': None}
         }
     suppress_extra_cd_dialog = False
     serial_console = None
@@ -136,8 +137,14 @@ def go(ui, args, answerfile_address, answerfile_script):
         elif opt == "--disable-gpt":
             constants.GPT_SUPPORT = False
             results["create-new-partitions"] = False
+            xelogging.log("Forcing DOS partition table and old partition layout via command-line")
+        elif opt == "--legacy-partitions":
+            results["create-new-partitions"] = False
             xelogging.log("Forcing old partition layout via command-line")
-           
+        elif opt == "--cc-preparations":
+            constants.CC_PREPARATIONS = True
+            results['network-backend'] = constants.NETWORK_BACKEND_BRIDGE
+
     if boot_console and not serial_console:
         serial_console = boot_console
         boot_serial = True

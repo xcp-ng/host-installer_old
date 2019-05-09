@@ -34,7 +34,8 @@ class SettingsNotAvailable(Exception):
     pass
 
 THIS_PLATFORM_VERSION = Version.from_string(version.PLATFORM_VERSION)
-XENSERVER_6_0_0 = Version([1, 0, 99]) # Platform version
+XENSERVER_7_0_0 = Version([2, 1, 0]) # Platform version
+XENSERVER_MIN_VERSION = XENSERVER_7_0_0
 
 class ExistingInstallation:
     def __init__(self, primary_disk, boot_device, state_device):
@@ -224,23 +225,13 @@ class ExistingInstallation:
             # management interface.
             mgmt_iface = self.getInventoryValue('MANAGEMENT_INTERFACE')
 
-            networkdb_path = constants.NETWORK_DB
-            if not os.path.exists(self.join_state_path(networkdb_path)):
-                networkdb_path = constants.OLD_NETWORK_DB
-            dbcache_path = constants.DBCACHE
-            if not os.path.exists(self.join_state_path(dbcache_path)):
-                dbcache_path = constants.OLD_DBCACHE
-
             if not mgmt_iface:
                 xelogging.log('No existing management interface found.')
-            elif os.path.exists(self.join_state_path(networkdb_path)):
-                networkd_db = constants.NETWORKD_DB
-                if not os.path.exists(self.join_state_path(networkd_db)):
-                    networkd_db = constants.OLD_NETWORKD_DB
-                xelogging.log('Checking %s for management interface configuration' % networkd_db)
+            elif os.path.exists(self.join_state_path(constants.NETWORK_DB)):
+                xelogging.log('Checking %s for management interface configuration' % constants.NETWORKD_DB)
 
                 def fetchIfaceInfoFromNetworkdbAsDict(bridge, iface=None):
-                    args = ['chroot', self.state_fs.mount_point, '/'+networkd_db, '-bridge', bridge]
+                    args = ['chroot', self.state_fs.mount_point, '/'+constants.NETWORKD_DB, '-bridge', bridge]
                     if iface:
                         args.extend(['-iface', iface])
                     rv, out = util.runCmd2(args, with_stdout = True)
@@ -289,70 +280,6 @@ class ExistingInstallation:
                 elif protov6 == 'autoconf':
                     results['net-admin-configuration'].addIPv6(NetInterface.Autoconf)
                     
-            elif os.path.exists(self.join_state_path(dbcache_path)):
-                xelogging.log('Checking %s for management network configuration' % dbcache_path)
-                def getText(nodelist):
-                    rc = ""
-                    for node in nodelist:
-                        if node.nodeType == node.TEXT_NODE:
-                            rc = rc + node.data
-                    return rc.strip().encode()
-                
-                xmldoc = xml.dom.minidom.parse(self.join_state_path(dbcache_path))
-
-                pif_uid = None
-                for node in xmldoc.documentElement.childNodes:
-                    if node.nodeType == node.ELEMENT_NODE and node.tagName == 'network':
-                        network = node
-                    else:
-                        continue
-                    # CA-50971: handle renamed networks in MNR
-                    if len(network.getElementsByTagName('bridge')) == 0 or \
-                       len(network.getElementsByTagName('PIFs')) == 0 or \
-                       len(network.getElementsByTagName('PIFs')[0].getElementsByTagName('PIF')) == 0:
-                        continue
-                
-                    if getText(network.getElementsByTagName('bridge')[0].childNodes) == mgmt_iface:
-                        pif_uid = getText(network.getElementsByTagName('PIFs')[0].getElementsByTagName('PIF')[0].childNodes)
-                        break
-                if pif_uid:
-                    for node in xmldoc.documentElement.childNodes:
-                        if node.nodeType == node.ELEMENT_NODE and node.tagName == 'pif':
-                            pif = node
-                        else:
-                            continue
-                        if pif.getAttribute('ref') == pif_uid:
-                            results['net-admin-interface'] = getText(pif.getElementsByTagName('device')[0].childNodes)
-                            results['net-admin-bridge'] = mgmt_iface
-                            results['net-admin-configuration'] = NetInterface.loadFromPif(pif)
-                            break
-            else:
-                xelogging.log('Checking ifcfg files for management network configuration')
-                for cfile in filter(lambda x: True in [x.startswith(y) for y in ['ifcfg-eth', 'ifcfg-bond']], \
-                                   os.listdir(self.join_state_path(constants.NET_SCR_DIR))):
-                    devcfg = util.readKeyValueFile(self.join_state_path(constants.NET_SCR_DIR, cfile), strip_quotes = False)
-                    if devcfg.has_key('DEVICE') and devcfg.has_key('BRIDGE') and devcfg['BRIDGE'] == mgmt_iface:
-                        brcfg = util.readKeyValueFile(self.join_state_path(constants.NET_SCR_DIR, 'ifcfg-'+devcfg['BRIDGE']), strip_quotes = False)
-                        results['net-admin-interface'] = devcfg['DEVICE']
-                        results['net-admin-bridge'] = devcfg['BRIDGE']
-
-                        # get hardware address if it was recorded, otherwise look it up:
-                        if devcfg.has_key('HWADDR'):
-                            hwaddr = devcfg['HWADDR']
-                        elif devcfg.has_key('MACADDR'):
-                            # our bonds have a key called MACADDR instead
-                            hwaddr = devcfg['MACADDR']
-                        else:
-                            hwaddr = netutil.getHWAddr(devcfg['DEVICE'])
-
-                        ifcfg = NetInterface.loadFromIfcfg(self.join_state_path(constants.NET_SCR_DIR, 'ifcfg-'+devcfg['BRIDGE']))
-                        if not ifcfg.hwaddr:
-                            ifcfg.hwaddr = hwaddr
-                        if ifcfg.isStatic() and not ifcfg.domain and domain:
-                            ifcfg.domain = domain
-                        results['net-admin-configuration'] = ifcfg
-                        break
-
             repo_list = []
             if os.path.exists(self.join_state_path(constants.INSTALLED_REPOS_DIR)):
                 try:
@@ -586,7 +513,10 @@ def findXenSourceBackups():
         try:
             b = util.TempMount(p, 'backup-', ['ro'], 'ext3')
             if os.path.exists(os.path.join(b.mount_point, '.xen-backup-partition')):
-                backups.append(XenServerBackup(p, b.mount_point))
+                backup = XenServerBackup(p, b.mount_point)
+                if backup.version >= XENSERVER_MIN_VERSION and \
+                        backup.version <= THIS_PLATFORM_VERSION:
+                    backups.append(backup)
         except:
             pass
         if b:

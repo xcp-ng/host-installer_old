@@ -720,7 +720,7 @@ def select_guest_disks(answers):
     allowed_in_local_sr = lambda dev: (dev == answers['primary-disk']) or (not isDeviceMapperNode(dev))
     diskEntries = filter(allowed_in_local_sr, diskEntries)
 
-    if len(diskEntries) == 0:
+    if len(diskEntries) == 0 or constants.CC_PREPARATIONS:
         answers['guest-disks'] = []
         return SKIP_SCREEN
 

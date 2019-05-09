@@ -104,6 +104,22 @@ def runCmd2(command, with_stdout = False, with_stderr = False, inputtext = None)
     return rv
 
 ###
+# make file system
+
+def mkfs(fstype, partition, options=None, wipe=True):
+    if wipe:
+        rc, err = runCmd2(['wipefs', '-a', partition], with_stderr=True)
+        if rc != 0:
+            raise Exception("err: '%s'" % err)
+
+    mkfs_cmd = ['mkfs.%s' % fstype , partition]
+    if options:
+        mkfs_cmd.extend(options)
+    rc, err = runCmd2(mkfs_cmd, with_stderr=True)
+    if rc != 0:
+        raise Exception("err: '%s'" % err)
+
+###
 # mounting/unmounting
 
 class MountFailureException(Exception):

@@ -8,10 +8,17 @@
 #
 # 2. ISO mode - if the filesystem on the device contains a top level
 #    directory named "xsinst" then the ramdisk will be populated with
-#    the unpacked contents of any *.iso file in xsinst as well as
-#    a recursize copy of any other files/directories in xsinst. A non-ISO
-#    file/dir in xsinst gets copied to the top level of the filesystem in
-#    the ramdisk. Typically xsinst will contain a XenServer main.iso,
+#    the unpacked contents of any *.iso file in xsinst.
+#
+#    If the ISO is a XenServer install ISO (i.e. contains a .treeinfo file), its
+#    contents will be copied to the top level of the filesystem in the ramdisk.
+#
+#    Any other ISOs will be copied to the a directory named after the ISO file,
+#    (e.g. test1.iso will be extracted to test1/).
+#
+#    Any non-ISO files/dirs in xsinst get copied to the top level of the
+#    filesystem in the ramdisk. Any files/dirs outside of the "xsinst" directory
+#    will be ignored. Typically xsinst will contain a XenServer main.iso,
 #    zero or more supplemental pack ISOs, an answerfile generator and
 #    a post install script. When using this mode with FATx filesystems it
 #    is recommended to use 8.3 naming of the files in xsinst (note that
