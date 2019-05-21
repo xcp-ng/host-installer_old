@@ -1701,9 +1701,14 @@ for repo in base.repos.repos.itervalues():
     external_tmp_filepath = mounts['root'] + internal_tmp_filepath
     with open(external_tmp_filepath, 'w') as f:
         f.write(import_yum_keys)
-    util.runCmd2(['chroot', mounts['root'], 'python', internal_tmp_filepath])
-    util.runCmd2(['chroot', mounts['root'], 'rpm', '--import', '/etc/pki/rpm-gpg/RPM-GPG-KEY-xcpng'])
-    os.unlink(external_tmp_filepath)
+    # bind mount /dev, necessary for NSS initialization without which RPM won't work
+    util.bindMount('/dev', "%s/dev" % mounts['root'])
+    try:
+        util.runCmd2(['chroot', mounts['root'], 'python', internal_tmp_filepath])
+        util.runCmd2(['chroot', mounts['root'], 'rpm', '--import', '/etc/pki/rpm-gpg/RPM-GPG-KEY-xcpng'])
+    finally:
+        util.umount("%s/dev" % mounts['root'])
+        os.unlink(external_tmp_filepath)
 
 ################################################################################
 # OTHER HELPERS
