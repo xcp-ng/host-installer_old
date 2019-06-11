@@ -53,8 +53,14 @@ class Answerfile:
         
     @staticmethod
     def fetch(location):
-        xelogging.log("Fetching answerfile from %s" % location)
-        util.fetchFile(location, ANSWERFILE_PATH)
+
+    	# If we already pulled the answer file, dont pull it again
+    	# This will allos the installation-start script to modify the file before
+    	# the installation kicks off
+    	# This is a poor man's back door for an installer like anaconda
+    	if not os.path.exists(ANSWERFILE_PATH):
+            xelogging.log("Fetching answerfile from %s" % location)
+            util.fetchFile(location, ANSWERFILE_PATH)
             
         try:
             xmldoc = xml.dom.minidom.parse(ANSWERFILE_PATH)
