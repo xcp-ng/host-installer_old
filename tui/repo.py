@@ -159,7 +159,7 @@ def get_url_location(answers, require_base_repo, is_main_install):
         else:
             url_field.set(url)
     else:
-        url_field.set('http://xcp-ng.org/install')
+        url_field.set('http://mirrors.xcp-ng.org/netinstall/8.0')
 
     done = False
     while not done:
