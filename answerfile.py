@@ -90,6 +90,7 @@ class Answerfile:
 
     def processAnswerfile(self):
         xelogging.log("Processing XML answerfile for %s." % self.operation)
+        results = {}
         if self.operation == 'installation':
             install_type = getStrAttribute(self.top_node, ['mode'], default = 'fresh')
             results['netinstall-gpg-check'] = getBoolAttribute(self.top_node, ['netinstall-gpg-check'], default = True)
