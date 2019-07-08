@@ -93,7 +93,6 @@ class Answerfile:
         results = {}
         if self.operation == 'installation':
             install_type = getStrAttribute(self.top_node, ['mode'], default = 'fresh')
-            
             if install_type == "fresh":
                 results = self.parseFreshInstall()
             elif install_type == "reinstall":
