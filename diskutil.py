@@ -616,22 +616,22 @@ def setup_ibft_nics():
         with open(os.path.join(t, 'nic-assoc'), 'r') as f:
             nic_assoc = f.read().strip()
 
-        e = os.path.join(constants.SYSFS_IBFT_DIR, 'ethernet' + nic_assoc)
-        with open(os.path.join(e, 'mac'), 'r') as f:
+        e_dir = os.path.join(constants.SYSFS_IBFT_DIR, 'ethernet' + nic_assoc)
+        with open(os.path.join(e_dir, 'mac'), 'r') as f:
             mac = f.read().strip()
-        with open(os.path.join(e, 'ip-addr'), 'r') as f:
+        with open(os.path.join(e_dir, 'ip-addr'), 'r') as f:
             ip = f.read().strip()
         try:
-            with open(os.path.join(e, 'gateway'), 'r') as f:
+            with open(os.path.join(e_dir, 'gateway'), 'r') as f:
                 gw = f.read().strip()
         except IOError as e:
             if e.errno == errno.ENOENT:
                 gw = None
             else:
                 raise
-        with open(os.path.join(e, 'subnet-mask'), 'r') as f:
+        with open(os.path.join(e_dir, 'subnet-mask'), 'r') as f:
             nm = f.read().strip()
-        with open(os.path.join(e, 'flags'), 'r') as f:
+        with open(os.path.join(e_dir, 'flags'), 'r') as f:
             flags = int(f.read().strip())
             assert (flags & 3) == 3
 
