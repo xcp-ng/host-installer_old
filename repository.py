@@ -286,7 +286,7 @@ class MainYumRepository(YumRepository):
     """Represents a Yum repository containing the main XenServer installation."""
 
     INFO_FILENAME = ".treeinfo"
-    _targets = ['@xenserver_base', '@xenserver_dom0']
+    _targets = ['xcp-ng-deps']
     _identifier = MAIN_REPOSITORY_NAME
 
     def __init__(self, accessor):
