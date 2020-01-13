@@ -8,17 +8,18 @@ import constants
 import re, subprocess, types, os, time
 from pprint import pprint
 from copy import copy, deepcopy
-import util, xelogging
+import util
+from xcp import logger
 
 class Segment:
     """Segments are areas, e.g. disk partitions or LVM segments, defined by start address and size"""
     def __init__(self, start, size):
         self.start = start
         self.size = size
-        
+
     def end(self):
         return self.start + self.size
-        
+
     def __repr__(self):
         repr = { 'end' : self.end() }
         repr.update(self.__dict__)
@@ -37,22 +38,22 @@ class MoveChunk:
 class FreePool:
     """FreePool manages the allotment of segments a pool of free segments, and
     divides segments as necessary to fill the requested size exactly"""
-    def __init__(self, freeSegments, usedThreshold = 0):
+    def __init__(self, freeSegments, usedThreshold=0):
         self.freeSegments = freeSegments
         # Instead of altering the free segment list as free space is consumed by takeSegments,
         # this class maintains a usedThreshold address.  Addresses lower than the threshold
         # have already been used, and those at or above it are still available
         self.usedThreshold = usedThreshold
-    
+
     def freeSpace(self):
         sizeLeft = 0
         for seg in self.freeSegments:
             freeSize = min(seg.size, seg.end() - self.usedThreshold)
             if freeSize > 0:
                 sizeLeft += freeSize
-        
+
         return sizeLeft
-    
+
     def takeSegments(self, size):
         """Returns a LIST of segments that fill the requested size, and effectively removes
         those segments from the free pool by increasing usedThreshold"""
@@ -79,20 +80,20 @@ class FreePool:
 
     def __repr__(self):
         return str(self.__dict__)
-        
+
 class LVMTool:
     # Separation character - mustn't appear in anything we expect back from pvs/vgs/lvs
     SEP = '#'
-    
+
     # Evacuate this many more extents than pvresize theoretically requires
     PVRESIZE_EXTENT_MARGIN = 0
-    
+
     # Volume group prefixes
     VG_SWAP_PREFIX = 'VG_XenSwap'
     VG_CONFIG_PREFIX = 'VG_XenConfig'
     VG_SR_PREFIX = 'VG_XenStorage'
     VG_EXT_SR_PREFIX = 'XSLocalEXT'
-    
+
     PVMOVE = ['pvmove']
     LVCHANGE = ['lvchange']
     LVREMOVE = ['lvremove']
@@ -100,7 +101,7 @@ class LVMTool:
     VGREMOVE = ['vgremove']
     PVREMOVE = ['pvremove']
     PVRESIZE = ['pvresize']
-    
+
     VGS_INFO = { # For one-per-VG records
         'command' : ['/sbin/lvm', 'vgs'],
         'arguments' : ['--noheadings', '--nosuffix', '--units', 'b', '--separator', SEP],
@@ -126,7 +127,7 @@ class LVMTool:
         'string_options' : ['pv_name', 'vg_name'],
         'integer_options' : ['pe_start', 'pv_size', 'pv_free', 'pv_pe_count', 'dev_size']
     }
-    
+
     def __init__(self):
         self.readAllInfo()
         self.pvsToDelete = []
@@ -135,7 +136,7 @@ class LVMTool:
         # moveLists are per device, so self.moveLists might be{ '/dev/sda3': [MoveChunk, MoveChunk, ...], '/dev/sdb3' : ... }
         self.moveLists = {}
         self.resizeList = []
- 
+
     @classmethod
     def cmdWrap(cls, params):
         rv, out, err = util.runCmd2(params, True, True)
@@ -145,7 +146,7 @@ class LVMTool:
             else:
                 raise Exception(str(err)+"\nError="+str(rv))
         return out
-        
+
     def readInfo(self, info):
         retVal = []
         allOptions = info['string_options'] + info['integer_options']
@@ -165,11 +166,11 @@ class LVMTool:
                     # Convert integer options to integer type
                     data[name] = int(data[name])
                 retVal.append(data)
-            except Exception, e:
-                xelogging.log("Discarding corrupt LVM output line '"+str(line)+"'")
-                xelogging.log("  Command was '"+str(cmd)+"'")
-                xelogging.log("  Error was '"+str(e)+"'")
-            
+            except Exception as e:
+                logger.log("Discarding corrupt LVM output line '"+str(line)+"'")
+                logger.log("  Command was '"+str(cmd)+"'")
+                logger.log("  Error was '"+str(e)+"'")
+
         return retVal
 
     def readAllInfo(self):
@@ -197,7 +198,7 @@ class LVMTool:
             'start' : int(matches.group(2)),
             'size' : int(matches.group(3)) - int(matches.group(2)) + 1 # +1 because end is inclusive
         }
-        
+
     @classmethod
     def encodeSegmentRange(cls, device, start, size):
         endInclusive = start+size-1
@@ -232,7 +233,7 @@ class LVMTool:
             if gapSize > 0:
                 # ... and add that to the free segment list
                 freeSegs.append(Segment(seg.end(), gapSize))
-        
+
         return freeSegs
 
     def segmentsToMove(self, device, threshold):
@@ -254,7 +255,7 @@ class LVMTool:
         pv = self.deviceToPV(device)
         # Extents >= thresholdExtent must be freed.
         segsToMove = self.segmentsToMove(device, thresholdExtent)
-        
+
         # Calculate the free pool if we haven't already.  If we have done it already, we've been
         # here before for this device, so use the existing FreePool object as it knows how much
         # free space is already used by reallocation
@@ -264,7 +265,7 @@ class LVMTool:
         # Take a copy.  We'll only commit our modified copy back to pv['free-pool']  if our transaction succeeds
         freePool = deepcopy(pv['free-pool'])
         moveList = []
-        
+
         for srcSeg in segsToMove:
             srcOffset = 0
             destSegs = freePool.takeSegments(srcSeg.size)
@@ -277,7 +278,7 @@ class LVMTool:
                 moveList.append(MoveChunk(srcStart, destStart, destSeg.size))
                 srcOffset += destSeg.size
             assert srcOffset == srcSeg.size # Logic error if not
-        
+
         # Add our moves to the current MoveChunk list for this device, creating the
         # dict element if necessary
         self.moveLists[device] = self.moveLists.get(device, []) + moveList
@@ -290,7 +291,7 @@ class LVMTool:
             if pv['pv_name'] == device:
                 return pv
         return None
-        
+
     def deviceToPV(self, device):
         pv = self.deviceToPVOrNone(device)
         if pv is None:
@@ -324,7 +325,7 @@ class LVMTool:
         # Round down, so enough space is freed for pvresize to complete, and allow
         # PVRESIZE_EXTENT_MARGIN for extents consumed by LVM metadata
         metadataExtents = (pv['pe_start'] + extentBytes - 1) / extentBytes # Round up
-        
+
         thresholdExtent = byteSize / extentBytes - metadataExtents - self.PVRESIZE_EXTENT_MARGIN
         self.makeSpaceAfterThreshold(device, thresholdExtent)
         self.resizeList.append({'device' : device, 'bytesize' : byteSize})
@@ -343,7 +344,7 @@ class LVMTool:
         """Returns the PV name for a config partition on the specified WHOLE DEVICE, e.g. '/dev/sda',
         or None if none present"""
         return self.testPartition(devicePrefix, self.VG_CONFIG_PREFIX)
-        
+
     def swapPartition(self, devicePrefix):
         return self.testPartition(devicePrefix, self.VG_SWAP_PREFIX)
 
@@ -373,17 +374,17 @@ class LVMTool:
         pvsToDelete = []
         vgsToDelete = []
         lvsToDelete = []
-        
+
         for pv in self.pvs:
             if pv['pv_name'] == device:
                 pvsToDelete.append(pv['pv_name'])
                 vgsToDelete.append(pv['vg_name'])
-    
+
         for lv in self.lvs:
             if lv['vg_name'] in vgsToDelete:
                 # lvremove requires a 'path': <VG name>/<LV name>
                 lvsToDelete.append(lv['vg_name']+'/'+lv['lv_name'])
-        
+
         self.pvsToDelete += pvsToDelete
         self.vgsToDelete += vgsToDelete
         self.lvsToDelete += lvsToDelete
@@ -398,7 +399,10 @@ class LVMTool:
         """Makes sure that LVM has unmounted everything so that, e.g. sfdisk can succeed"""
         for vg in self.vgs:
             # Passing VG names to LVchange is intentional
-            self.cmdWrap(self.LVCHANGE + ['-an', vg['vg_name']])
+            try:
+                self.cmdWrap(self.LVCHANGE + ['-an', vg['vg_name']])
+            except Exception as e:
+                logger.logException(e)
 
     @classmethod
     def executeMoves(cls, progress_callback, device, moveList):
@@ -426,7 +430,7 @@ class LVMTool:
                 offset += chunkSize
                 extentsSoFar += chunkSize
 
-    def commit(self, progress_callback = lambda _ : ()):
+    def commit(self, progress_callback=lambda _ : ()):
         """Commit the changes queued up by issuing LVM commands, delete our queues as they
         succeed, and then reread the new configuration from LVM"""
         progress_callback(0)
@@ -434,7 +438,7 @@ class LVMTool:
         self.cmdWrap(self.PVMOVE + ['--abort'])
         self.deactivateAll()
         progress_callback(1)
-        
+
         # Process delete lists
         for lv in self.lvsToDelete:
             self.cmdWrap(self.LVREMOVE + [lv])
@@ -448,21 +452,21 @@ class LVMTool:
             self.cmdWrap(self.PVREMOVE + ['--force', '--yes', pv])
         self.pvsToDelete = []
         progress_callback(4)
-        
-        # Process move lists.  Most of the code here is for calculating smoothly 
+
+        # Process move lists.  Most of the code here is for calculating smoothly
         # increasing progress values
         totalExtents = 0
         for moveList in self.moveLists.values():
             totalExtents += sum([ move.size for move in moveList ])
         extentsSoFar = 0
-        
+
         for device, moveList in sorted(self.moveLists.iteritems()):
             thisSize = sum([ move.size for move in moveList ])
             callback = lambda percent : (progress_callback( 5 + (98 - 5) * (extentsSoFar + thisSize * percent / 100) / totalExtents) )
             self.executeMoves(callback, device, moveList)
             extentsSoFar +=  thisSize
         self.moveLists = {}
-        
+
         # Process resize list
         progress_callback(98)
         for resize in self.resizeList:
@@ -473,7 +477,7 @@ class LVMTool:
         progress_callback(99)
         self.deactivateAll() # Stop active LVs preventing changes to the partition structure
         progress_callback(100)
-        
+
     def dump(self):
         pprint(self.__dict__)
 
@@ -500,7 +504,7 @@ def determineMidfix(device):
     return ''
 
 def partitionDevice(device, deviceNum):
-    return device + determineMidfix(device) + str(deviceNum) 
+    return device + determineMidfix(device) + str(deviceNum)
 
 
 class PartitionToolBase:
@@ -509,9 +513,9 @@ class PartitionToolBase:
     Contains common code.
     """
     BLOCKDEV = '/sbin/blockdev'
-    
+
     DEFAULT_SECTOR_SIZE = 512 # Used if sfdisk won't print its (hardcoded) value
-    
+
     def __init__(self, device):
         self.device = device
         self.midfix = determineMidfix(device)
@@ -531,7 +535,7 @@ class PartitionToolBase:
         if rv != 0:
             raise Exception(err)
         return out
-    
+
     def _partitionDevice(self, deviceNum):
         return self.device + self.midfix + str(deviceNum)
 
@@ -547,7 +551,7 @@ class PartitionToolBase:
         try:
             self.cmdWrap(util.udevsettleCmd() + ['--timeout=%d' % timeout ])
         except:
-            xelogging.log('udevsettle with %d second timeout failed' % timeout)
+            logger.log('udevsettle with %d second timeout failed' % timeout)
 
     def waitForDeviceNodes(self):
         # Ensure new device nodes are available before we continue.
@@ -555,25 +559,25 @@ class PartitionToolBase:
         # the kernel, then call settle to wait for all events complete.
         time.sleep(1)
         self.settleUdev()
-        
-    def writePartitionTable(self, dryrun = False, log = False):
+
+    def writePartitionTable(self, dryrun=False, log=False):
         try:
             self.writeThisPartitionTable(self.partitions, dryrun, log)
-        except Exception, e:
+        except Exception as e:
             try:
                 # Revert to the original partition table
                 self.writeThisPartitionTable(self.origPartitions, dryrun)
-            except Exception, e2:
+            except Exception as e2:
                 raise Exception('The new partition table could not be written: '+str(e)+'\nReversion also failed: '+str(e2))
             raise Exception('The new partition table could not be written but was reverted successfully: '+str(e))
         else:
             self.waitForDeviceNodes()
 
     # Public methods from here onward:
-    def getPartition(self, number, default = None):
+    def getPartition(self, number, default=None):
         return deepcopy(self.partitions.get(number, default))
-    
-    def createPartition(self, id, sizeBytes = None, number = None, order = None, startBytes = None, active = False):
+
+    def createPartition(self, id, sizeBytes=None, number=None, order=None, startBytes=None, active=False):
         if number is None:
             if len(self.partitions) == 0:
                 newNumber = 1
@@ -633,39 +637,39 @@ class PartitionToolBase:
         }
 
     def deletePartition(self, number):
-        del self.partitions[number]            
+        del self.partitions[number]
 
     def deletePartitionIfPresent(self, number):
         if number in self.partitions:
             self.deletePartition(number)
-        
+
     def deletePartitions(self, numbers):
         for number in numbers:
             self.deletePartition(number)
-            
-    def renamePartition(self, srcNumber, destNumber, overwrite = False):
+
+    def renamePartition(self, srcNumber, destNumber, overwrite=False):
         if srcNumber not in self.partitions:
             raise Exception('Source partition '+str(srcNumber)+' does not exist')
         if srcNumber != destNumber:
             if not overwrite and destNumber in self.partitions:
                 raise Exception('Destination partition '+str(destNumber)+' already exists')
-    
+
             self.partitions[destNumber] = self.partitions[srcNumber]
             self.deletePartition(srcNumber)
-    
+
     def partitionSize(self, number):
         if number not in self.partitions:
             raise Exception('Partition '+str(number)+' does not exist')
         return self.getPartition(number)['size'] * self.sectorSize
-    
+
     def partitionStart(self, number):
         if number not in self.partitions:
             raise Exception('Partition '+str(number)+' does not exist')
         return self.getPartition(number)['start'] * self.sectorSize
-    
+
     def partitionEnd(self, number):
         return self.partitionStart(number) + self.partitionSize(number)
-    
+
     def partitionID(self, number):
         if number not in self.partitions:
             raise Exception('Partition '+str(number)+' does not exist')
@@ -676,9 +680,9 @@ class PartitionToolBase:
             raise Exception('Partition for resize '+str(number)+' does not exists')
         if sizeBytes % self.sectorSize != 0:
             raise Exception("Partition size ("+str(sizeBytes)+") is not a multiple of the sector size "+str(self.sectorSize))
-        
+
         self.partitions[number]['size'] = sizeBytes / self.sectorSize
-    
+
     def setActiveFlag(self, activeFlag, number):
         assert isinstance(activeFlag, types.BooleanType) # Assert that params are the right way around
         if not number in self.partitions:
@@ -695,7 +699,7 @@ class PartitionToolBase:
         for number, partition in sorted(self.partitions.iteritems()):
             yield number, partition
 
-    def commit(self, dryrun = False, log = False):
+    def commit(self, dryrun=False, log=False):
         self.writePartitionTable(dryrun, log)
         if not dryrun:
             # Update the revert point so this tool can be used repeatedly
@@ -717,7 +721,7 @@ class PartitionToolBase:
             for k, v in sorted(partition.iteritems()):
                 output += ' '+k+'='+((k == 'id') and hex(v) or str(v))
             output += "\n"
-        xelogging.log(output)
+        logger.log(output)
 
 
 class DOSPartitionTool(PartitionToolBase):
@@ -750,22 +754,22 @@ class DOSPartitionTool(PartitionToolBase):
 
         self.sectorFirstUsable = sectors # Some SANs require bootable disks to start on sector boundary
         self.sectorLastUsable = self.sectorExtent - 1
-    
+
         # Read sector size.  This will fail if the disk has no partition table at all
         self.sectorSize = None
-        
+
         out = self.cmdWrap([self.SFDISK, '-LluS', self.device])
         for line in out.split("\n"):
             matches = re.match(r'^\s*Units:\s*sectors\s*of\s*(\d+)\s*bytes', line)
             if matches:
                 self.sectorSize = int(matches.group(1))
                 break
-        
+
         if self.sectorSize is None:
             self.sectorSize = self.DEFAULT_SECTOR_SIZE
-            xelogging.log("Couldn't determine sector size from sfdisk output - no partition table?\n"+
+            logger.log("Couldn't determine sector size from sfdisk output - no partition table?\n"+
                 "Using default value: "+str(self.sectorSize)+"\nsfdisk output:"+out)
-                
+
     def __readDeviceMapperDiskDetails(self):
         # DM nodes don't have a geometry and this version of sfdisk will return nothing.
         # Later versions return the default geometry below.
@@ -811,11 +815,11 @@ class DOSPartitionTool(PartitionToolBase):
                     matches = re.match(r'(.*?)\s*:\s*start=\s*(\d+),\s*size=\s*(\d+)', line)
                     if not matches:
                         raise Exception("Could not decode partition line: '"+line+"'")
-                
+
                 size = int(matches.group(3))
                 if size != 0: # Treat partitions of size 0 as not present
                     number = self._partitionNumber(matches.group(1))
-    
+
                     partitions[number] = {
                         'start': int(matches.group(2)),
                         'size': size,
@@ -829,9 +833,9 @@ class DOSPartitionTool(PartitionToolBase):
         self.cmdWrap([self.SFDISK, '--no-reread', '-A%d' % part_num, self.device]) # BIOS bootable flag set for one and unset for others partition
         self.waitForDeviceNodes()
 
-    def writeThisPartitionTable(self, table, dryrun = False, log = False):
+    def writeThisPartitionTable(self, table, dryrun=False, log=False):
         input = 'unit: sectors\n\n'
-    
+
         # sfdisk doesn't allow us to skip partitions, so invent lines for empty slot
         for number in range(1, 1+max([1]+table.keys())):
             partition = table.get(number, {
@@ -846,10 +850,10 @@ class DOSPartitionTool(PartitionToolBase):
             line += ' Id=%x' % partition['id']
             if partition['active']:
                 line += ', bootable'
-                
+
             input += line+'\n'
         if log:
-            xelogging.log('Input to sfdisk:\n'+input)
+            logger.log('Input to sfdisk:\n'+input)
 
         if isDeviceMapperNode(self.device):
             # Destroy device mapper partitions before re-writing partition table on mpath device
@@ -862,18 +866,18 @@ class DOSPartitionTool(PartitionToolBase):
             cmd = [self.SFDISK, dryrun and '-Lnu' or '-Lu', '--no-reread', '-f', '-C%d' % cylinders, '-H%d' % heads, '-S%d' % sectors, self.device]
         else:
             cmd = [self.SFDISK, dryrun and '-LnuS' or '-LuS', '--no-reread', '-f', self.device]
-        xelogging.log('sfdisk command: %s' % ' '.join(cmd))
+        logger.log('sfdisk command: %s' % ' '.join(cmd))
         self.settleUdev()
         process = subprocess.Popen(
             cmd,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            close_fds = True,
+            close_fds=True,
             )
         output = process.communicate(input)
         if log:
-            xelogging.log('Output from sfdisk:\n'+output[0])
+            logger.log('Output from sfdisk:\n'+output[0])
 
         if isDeviceMapperNode(self.device):
             # Create partitions using device mapper
@@ -893,9 +897,9 @@ class DOSPartitionTool(PartitionToolBase):
             if 'BLKRRPART: Device or resource busy' in output:
                 raise Exception('The disk appears to be in use and partition changes cannot be applied. Reboot and repeat the installation')
 
-            # Verify the table 
+            # Verify the table
             # Ignore warnings about partitions apparently with ends beyond the end of the disk
-            rc, err = util.runCmd2([self.SFDISK, '-LVquS', self.device], with_stderr = True)
+            rc, err = util.runCmd2([self.SFDISK, '-LVquS', self.device], with_stderr=True)
             if rc == 1:
                 lines = err.split('\n')
                 if len(filter(lambda x : x != '' and not x.endswith('extends past end of disk'), lines)) != 0:
@@ -916,7 +920,7 @@ class GPTPartitionTool(PartitionToolBase):
     ID_LINUX_LVM    = "E6D6D379-F507-44C2-A23C-238F2A3DF928"
     ID_EFI_BOOT     = "C12A7328-F81F-11D2-BA4B-00A0C93EC93B"
     ID_BIOS_BOOT    = "21686148-6449-6E6F-744E-656564454649"
-    
+
     # Lookup used for creating partitions
     GUID_to_type_code = {
         ID_LINUX_SWAP:   '8200',
@@ -934,12 +938,12 @@ class GPTPartitionTool(PartitionToolBase):
         self.sectorExtent      = int(self.cmdWrap(['blockdev', '--getsize64', self.device])) / self.sectorSize
         self.sectorFirstUsable = 34
         self.sectorLastUsable  = self.sectorExtent - 34
-            
+
     def partitionTable(self):
         cmd = [self.SGDISK, '--print', self.device]
         rv, out, err = util.runCmd2(cmd, True, True)
         if rv != 0:
-            xelogging.log('Invalid or corrupt partition table found on disk %s. Skipping...' % self.device)
+            logger.log('Invalid or corrupt partition table found on disk %s. Skipping...' % self.device)
             self.waitForDeviceNodes()
             return {}
 
@@ -957,7 +961,7 @@ class GPTPartitionTool(PartitionToolBase):
                 continue
             if not gotHeader:
                 if matchWarning.match(line):
-                    xelogging.log("Warning: GPTPartitionTool found DOS partition table on device %s" % self.device)
+                    logger.log("Warning: GPTPartitionTool found DOS partition table on device %s" % self.device)
                 elif matchHeader.match(line):
                     gotHeader = True
             else:
@@ -987,14 +991,14 @@ class GPTPartitionTool(PartitionToolBase):
                 m = matchPartUUID.match(line)
                 if m:
                     partitions[number]['partuuid'] = m.group(1)
-            assert partitions[number].has_key('id')
+            assert 'id' in partitions[number]
 
         # sgdisk opens the device with O_WRONLY even when not changing anything
         # so settle udev to ensure device nodes are available for subsequent
         # commands.
         self.waitForDeviceNodes()
         return partitions
-    
+
     def commitActivePartitiontoDisk(self, partnum):
         for num, part in self.iteritems():
             if num == partnum:
@@ -1004,9 +1008,9 @@ class GPTPartitionTool(PartitionToolBase):
 
         self.waitForDeviceNodes()
 
-    def writeThisPartitionTable(self, table, dryrun = False, log = False):
+    def writeThisPartitionTable(self, table, dryrun=False, log=False):
         for part in table.values():
-            if not self.GUID_to_type_code.has_key(part['id']):
+            if part['id'] not in self.GUID_to_type_code:
                 raise Exception("GPT partitions with part type GUID %s unsupported" % part['id'])
 
         if isDeviceMapperNode(self.device):
@@ -1021,13 +1025,13 @@ class GPTPartitionTool(PartitionToolBase):
             # will restore the backup GPT if the main GPT is damaged (which is not what we want).
             self.cmdWrap([self.SGDISK, '--clear', self.device])
         except:
-            # Ignore error code which results from inconsistent initial state 
+            # Ignore error code which results from inconsistent initial state
             pass
 
         try:
             self.cmdWrap([self.SGDISK, '--zap', self.device])
         except:
-            # Ignore error code which results from inconsistent initial state 
+            # Ignore error code which results from inconsistent initial state
             pass
         self.cmdWrap([self.SGDISK, '--mbrtogpt', '--clear', self.device])
 
@@ -1038,8 +1042,8 @@ class GPTPartitionTool(PartitionToolBase):
                 break
 
         if not has_esp:
-            # CA-54144: Some _stupid_ BIOSes refuse to boot disks that don't have a DOS partition table 
-            # with an active partition.  This is incorrect because it makes the assumption that the 
+            # CA-54144: Some _stupid_ BIOSes refuse to boot disks that don't have a DOS partition table
+            # with an active partition.  This is incorrect because it makes the assumption that the
             # bootloader uses a DOS partition table.  Instead the BIOSes _should_ just check for 0x55,0xaa
             # at location 0x1fe.
             # However, let's keep them happy by making the single partition in the protective MBR "active".
@@ -1053,7 +1057,7 @@ class GPTPartitionTool(PartitionToolBase):
             start  = part['start']
             end    = part['size'] + start - 1
             idt    = part['id']
-            active = part['active']            
+            active = part['active']
             self.cmdWrap([self.SGDISK, '--new=%d:%d:%d' % (num,start,end), self.device])
             self.cmdWrap([self.SGDISK, '--typecode=%d:%s' % (num,self.GUID_to_type_code[idt]), self.device])
             if active:
@@ -1079,18 +1083,18 @@ def probePartitioningScheme(device):
     partitionType = constants.PARTITION_GPT   # default
     rv, out = util.runCmd2(['blkid', '-s', 'PTTYPE', '-o', 'value', device], with_stdout=True)
     out = out.strip()
- 
+
     if out == 'dos':
         partitionType = constants.PARTITION_DOS
 
     return partitionType
-    
+
 def PartitionTool(device, partitionType=None):
     """
-    By default PartitionTool() will return the tool appropriate to the partitioning 
+    By default PartitionTool() will return the tool appropriate to the partitioning
     system currently in use on device
     """
-    if partitionType == None:
+    if partitionType is None:
         partitionType = probePartitioningScheme(device)
     if partitionType == constants.PARTITION_DOS:
         return DOSPartitionTool(device)
@@ -1124,7 +1128,7 @@ def createMpathPartnodes():
 def getMpathNodes():
     nodes = []
     rv, out = util.runCmd2(['dmsetup', 'ls', '--target', 'multipath', '--exec', 'ls'], with_stdout=True)
-    xelogging.log("multipath devs: %s" % out)
+    logger.log("multipath devs: %s" % out)
     lines = out.strip().split('\n')
     for line in lines:
         if line.startswith('/dev/'):
@@ -1170,7 +1174,7 @@ def getSysfsDir(dev):
                return '/sys/block/%s' % name
         except:
             pass
-    raise RuntimeError, "Couldn't find sysfs dir for device %s" % dev
+    raise RuntimeError("Couldn't find sysfs dir for device %s" % dev)
 
 def hasDeviceMapperHolder(dev):
     sysfs = getSysfsDir(dev)
@@ -1185,7 +1189,7 @@ def getDeviceMapperNode(n):
     "Return the /dev/mapper/node corresponding to /sys/block/dm-n"
     (major,minor) = map(int,open('/sys/block/dm-%s/dev' % str(n)).read().strip().split(':'))
     for i in os.listdir('/dev/mapper'):
-        dmdev = '/dev/mapper/%s' % i 
+        dmdev = '/dev/mapper/%s' % i
         if getMajMin(dmdev) == (major,minor):
             return dmdev
     return None
@@ -1216,7 +1220,7 @@ def getMpathMaster(dev):
         else:
             holders = os.listdir('%s/holders' % d)
             if len(holders) != 1 or (not holders[0].startswith('dm-')):
-                xelogging.log('getMpathMaster: contents of %s/holders/ is %s' % (d,str(holders)))
+                logger.log('getMpathMaster: contents of %s/holders/ is %s' % (d,str(holders)))
                 return None
             else:
                 holder = holders[0]
@@ -1225,9 +1229,9 @@ def getMpathMaster(dev):
         for i in os.listdir('/dev/mapper'):
             dmdev = '/dev/mapper/%s' % i
             if getMajMin(dmdev) == (major,minor):
-                xelogging.log('getMpathMaster: %s has master %s' % (dev,dmdev))
+                logger.log('getMpathMaster: %s has master %s' % (dev,dmdev))
                 return dmdev
-        xelogging.log('getMpathMaster: could not find master %d:%d of %s in /dev/mapper/' % (major,minor,dev))
+        logger.log('getMpathMaster: could not find master %d:%d of %s in /dev/mapper/' % (major,minor,dev))
 
     except OSError:
         return None

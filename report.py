@@ -14,13 +14,14 @@ import snack
 import snackutil
 import sys
 import uicontroller
+import urllib
 import urlparse
 import util
 from version import *
 from xelogging import collectLogs
 
 import xcp.accessor
-import xcp.logger as xelogging
+from xcp import logger
 
 
 def selectDefault(key, entries):
@@ -51,7 +52,7 @@ def select_report_media(answers):
         "Save Report",
         "Select where to store report.",
         entries,
-        ['Ok', 'Back'], default=default, help = 'selrepdst'
+        ['Ok', 'Back'], default=default, help='selrepdst'
         )
 
     if button == 'back': return uicontroller.LEFT_BACKWARDS
@@ -89,7 +90,7 @@ def get_local_disk(answers):
 
     entries = []
     target_is_sr = {}
-    
+
     for de in diskEntries:
         (vendor, model, size) = diskutil.getExtendedDiskInfo(de)
         # determine current usage
@@ -115,8 +116,8 @@ def get_local_disk(answers):
         "Select Device",
         "Please select the device to store the report on.",
         entries,
-        ['Ok', 'Back'], 55, scroll, height, default, help = 'getlocaldisk:info',
-        hotkeys = {'F5': disk_more_info})
+        ['Ok', 'Back'], 55, scroll, height, default, help='getlocaldisk:info',
+        hotkeys={'F5': disk_more_info})
 
     tui.screen.popHelpLine()
 
@@ -136,7 +137,7 @@ def get_local_dest(answers):
         answers['dest-address'] = '/dev/' + partitions[0]
     else:
         entries = []
-    
+
         for part in partitions:
             e = (part, '/dev/' + part)
             entries.append(e)
@@ -154,8 +155,8 @@ def get_local_dest(answers):
             "Select Device",
             "Please select the partition to store the report on.",
             entries,
-            ['Ok', 'Back'], 55, scroll, height, default, help = 'getlocaldest:info',
-            hotkeys = {'F5': disk_more_info})
+            ['Ok', 'Back'], 55, scroll, height, default, help='getlocaldest:info',
+            hotkeys={'F5': disk_more_info})
 
         tui.screen.popHelpLine()
 
@@ -171,22 +172,21 @@ def get_ftp_dest(answers):
     text = "Please enter the URL for your FTP directory and, optionally, a username and password"
     url_field = snack.Entry(50)
     user_field = snack.Entry(16)
-    passwd_field = snack.Entry(16, password = 1)
+    passwd_field = snack.Entry(16, password=1)
     url_text = snack.Textbox(11, 1, "URL:")
     user_text = snack.Textbox(11, 1, "Username:")
     passwd_text = snack.Textbox(11, 1, "Password:")
 
     if 'dest-address' in answers:
         url = answers['dest-address']
-        (scheme, netloc, path, params, query) = urlparse.urlsplit(url)
-        (hostname, username, password) = util.splitNetloc(netloc)
-        if username != None:
-            user_field.set(username)
-            if password == None:
-                url_field.set(url.replace('%s@' % username, '', 1))
+        parts = urlparse.urlsplit(url)
+        if parts.username is not None:
+            user_field.set(urllib.unquote(parts.username))
+            if parts.password is None:
+                url_field.set(url.replace('%s@' % parts.username, '', 1))
             else:
-                passwd_field.set(password)
-                url_field.set(url.replace('%s:%s@' % (username, password), '', 1))
+                passwd_field.set(urllib.unquote(parts.password))
+                url_field.set(url.replace('%s:%s@' % (parts.username, parts.password), '', 1))
         else:
             url_field.set(url)
 
@@ -198,13 +198,13 @@ def get_ftp_dest(answers):
     entry_grid.setField(url_text, 0, 0)
     entry_grid.setField(url_field, 1, 0)
     entry_grid.setField(user_text, 0, 1)
-    entry_grid.setField(user_field, 1, 1, anchorLeft = 1)
+    entry_grid.setField(user_field, 1, 1, anchorLeft=1)
     entry_grid.setField(passwd_text, 0, 2)
-    entry_grid.setField(passwd_field, 1, 2, anchorLeft = 1)
+    entry_grid.setField(passwd_field, 1, 2, anchorLeft=1)
 
-    gf.add(t, 0, 0, padding = (0, 0, 0, 1))
-    gf.add(entry_grid, 0, 1, padding = (0, 0, 0, 1))
-    gf.add(bb, 0, 2, growx = 1)
+    gf.add(t, 0, 0, padding=(0, 0, 0, 1))
+    gf.add(entry_grid, 0, 1, padding=(0, 0, 0, 1))
+    gf.add(bb, 0, 2, growx=1)
 
     button = bb.buttonPressed(gf.runOnce())
 
@@ -214,19 +214,21 @@ def get_ftp_dest(answers):
     if not url.startswith('ftp://'):
         url = 'ftp://' + url
     if user_field.value() != '':
+        quoted_user = urllib.quote(user_field.value(), safe='')
         if passwd_field.value() != '':
-            answers['dest-address'] = url.replace('//', '//%s:%s@' % (user_field.value(), passwd_field.value()), 1)
+            quoted_passwd = urllib.quote(passwd_field.value(), safe='')
+            answers['dest-address'] = url.replace('//', '//%s:%s@' % (quoted_user, quoted_passwd), 1)
         else:
-            answers['dest-address'] = url.replace('//', '//%s@' % user_field.value(), 1)
+            answers['dest-address'] = url.replace('//', '//%s@' % quoted_user, 1)
     else:
         answers['dest-address'] = url
-            
+
     return uicontroller.RIGHT_FORWARDS
 
 def get_nfs_dest(answers):
     text = "Please enter the server and path of your NFS share (e.g. myserver:/my/directory)"
     label = "NFS Path:"
-        
+
     if 'dest-address' in answers:
         default = answers['dest-address']
     else:
@@ -235,9 +237,9 @@ def get_nfs_dest(answers):
         tui.screen,
         "Specify Path",
         text,
-        [(label, default)], entryWidth = 50, width = 50,
-        buttons = ['Ok', 'Back'], help = 'getnfsdest')
-            
+        [(label, default)], entryWidth=50, width=50,
+        buttons=['Ok', 'Back'], help='getnfsdest')
+
     if button == 'back': return uicontroller.LEFT_BACKWARDS
 
     answers['dest-address'] = result[0]
@@ -256,12 +258,12 @@ def report_complete(report_saved):
     if report_saved:
         snack.ButtonChoiceWindow(tui.screen,
                                  "Report Saved",
-                                 "Report saved successfully.", 
+                                 "Report saved successfully.",
                                  ['Ok'])
     else:
         snack.ButtonChoiceWindow(tui.screen,
                                  "Error",
-                                 "Unable to save report.", 
+                                 "Unable to save report.",
                                  ['Ok'])
 
     return uicontroller.RIGHT_FORWARDS
@@ -272,13 +274,13 @@ def main(args):
     dests = []
     ui = None
 
-    xelogging.openLog('/dev/tty3')
+    logger.openLog('/dev/tty3')
 
     if len(args) == 0:
         ui = tui
     else:
         dests = args
-        
+
     if ui:
         ui.init_ui()
 
@@ -289,14 +291,15 @@ def main(args):
 
         seq = [
             uicontroller.Step(select_report_media),
-            uicontroller.Step(tui.network.requireNetworking, predicates = [remote_dest]),
-            uicontroller.Step(get_local_disk, predicates = [local_dest]),
+            uicontroller.Step(tui.network.requireNetworking, predicates=[remote_dest]),
+            uicontroller.Step(get_local_disk, predicates=[local_dest]),
             uicontroller.Step(select_report_dest),
             ]
         rc = uicontroller.runSequence(seq, results)
         if rc == uicontroller.RIGHT_FORWARDS:
-            xelogging.log("ANSWERS DICTIONARY:")
-            xelogging.log(str(results))
+            logger.log('Destination media: ' + results['dest-media'])
+            logger.log('Destination address: ' +
+                ('(hidden)' if results['dest-media'] == 'ftp' else results['dest-address']))
 
             if results['dest-media'] == 'local':
                 dests.append("dev://" + results['dest-address'])
@@ -310,17 +313,17 @@ def main(args):
 
     report_saved = False
     for dest in dests:
-        xelogging.log("Saving report to: " + dest)
         try:
             a = xcp.accessor.createAccessor(dest, False)
+            logger.log("Saving report to: " + str(a))
             a.start()
             fh = open('/tmp/support.tar.bz2')
             a.writeFile(fh, 'support.tar.bz2')
             fh.close()
             a.finish()
             report_saved = True
-        except Exception, e:
-            xelogging.log("Failed: " + str(e))
+        except Exception as e:
+            logger.log("Failed: " + str(e))
             report_saved = False
 
     if ui:

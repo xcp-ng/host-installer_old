@@ -1,7 +1,7 @@
-# Copyright (c) 2005-2006 XenSource, Inc. All use and distribution of this 
-# copyrighted material is governed by and subject to terms and conditions 
+# Copyright (c) 2005-2006 XenSource, Inc. All use and distribution of this
+# copyrighted material is governed by and subject to terms and conditions
 # as licensed by XenSource, Inc. All other rights reserved.
-# Xen, XenSource and XenEnterprise are either registered trademarks or 
+# Xen, XenSource and XenEnterprise are either registered trademarks or
 # trademarks of XenSource Inc. in the United States and/or other countries.
 
 ###
@@ -12,18 +12,20 @@
 
 import os
 import os.path
-import xelogging
 import subprocess
 import urllib
 import urllib2
+import urlparse
 import shutil
 import re
 import datetime
+import time
 import random
 import string
 import tempfile
 import errno
 from version import *
+from xcp import logger
 
 random.seed()
 
@@ -43,11 +45,11 @@ def assertDir(dirname):
 def assertDirs(*dirnames):
     for d in dirnames:
         assertDir(d)
-        
+
 def copyFile(source, dest):
     assert os.path.isfile(source)
     assert os.path.isdir(dest)
-    
+
     assert runCmd2(['cp', '-f', source, '%s/' % dest]) == 0
 
 def copyFilesFromDir(sourcedir, dest):
@@ -61,14 +63,14 @@ def copyFilesFromDir(sourcedir, dest):
 ###
 # shell
 
-def runCmd2(command, with_stdout = False, with_stderr = False, inputtext = None):
+def runCmd2(command, with_stdout=False, with_stderr=False, inputtext=None):
 
-    cmd = subprocess.Popen(command, bufsize = 1,
-                           stdin = (inputtext and subprocess.PIPE or None),
-                           stdout = subprocess.PIPE,
-                           stderr = subprocess.PIPE,
-                           shell = isinstance(command, str),
-                           close_fds = True)
+    cmd = subprocess.Popen(command, bufsize=1,
+                           stdin=(inputtext and subprocess.PIPE or None),
+                           stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE,
+                           shell=isinstance(command, str),
+                           close_fds=True)
 
 #     if inputtext:
 #      (out, err) = cmd.communicate(inputtext)
@@ -93,7 +95,7 @@ def runCmd2(command, with_stdout = False, with_stderr = False, inputtext = None)
         l += "\nSTANDARD OUT:\n" + out
     if err != "":
         l += "\nSTANDARD ERROR:\n" + err
-    xelogging.log(l)
+    logger.log(l)
 
     if with_stdout and with_stderr:
         return rv, out, err
@@ -127,7 +129,7 @@ class MountFailureException(Exception):
 
 def pidof(name):
     def is_pid(s):
-        for c in s: 
+        for c in s:
             if not c in string.digits: return False
         return True
     def has_name(pid):
@@ -139,8 +141,8 @@ def pidof(name):
     pids = filter(has_name, pids)
     return pids
 
-def mount(dev, mountpoint, options = None, fstype = None):
-    xelogging.log("Mounting %s to %s, options = %s, fstype = %s" % (dev, mountpoint, options, fstype))
+def mount(dev, mountpoint, options=None, fstype=None):
+    logger.log("Mounting %s to %s, options = %s, fstype = %s" % (dev, mountpoint, options, fstype))
 
     cmd = ['/bin/mount']
     if options:
@@ -157,18 +159,18 @@ def mount(dev, mountpoint, options = None, fstype = None):
 
     rc, out, err = runCmd2(cmd, with_stdout=True, with_stderr=True)
     if rc != 0:
-        raise MountFailureException, "out: '%s' err: '%s'" % (out, err)
+        raise MountFailureException("out: '%s' err: '%s'" % (out, err))
 
 def bindMount(source, mountpoint):
-    xelogging.log("Bind mounting %s to %s" % (source, mountpoint))
-    
+    logger.log("Bind mounting %s to %s" % (source, mountpoint))
+
     cmd = [ '/bin/mount', '--bind', source, mountpoint]
     rc, out, err = runCmd2(cmd, with_stdout=True, with_stderr=True)
     if rc != 0:
-        raise MountFailureException, "out: '%s' err: '%s'" % (out, err)
+        raise MountFailureException("out: '%s' err: '%s'" % (out, err))
 
-def umount(mountpoint, force = False):
-    xelogging.log("Unmounting %s (force = %s)" % (mountpoint, force))
+def umount(mountpoint, force=False):
+    logger.log("Unmounting %s (force = %s)" % (mountpoint, force))
 
     cmd = ['/bin/umount', '-d'] # -d option also removes the loop device (if present)
     if force:
@@ -179,9 +181,9 @@ def umount(mountpoint, force = False):
     return rc
 
 class TempMount:
-    def __init__(self, device, tmp_prefix, options = None, fstype = None, boot_device = None, boot_mount_point = None):
+    def __init__(self, device, tmp_prefix, options=None, fstype=None, boot_device=None, boot_mount_point=None):
         self.mounted = False
-        self.mount_point = tempfile.mkdtemp(dir = "/tmp", prefix = tmp_prefix)
+        self.mount_point = tempfile.mkdtemp(dir="/tmp", prefix=tmp_prefix)
         self.boot_mount_point = None
         self.boot_mounted = False
         try:
@@ -226,13 +228,6 @@ class TempMount:
         if os.path.isdir(self.mount_point):
             os.rmdir(self.mount_point)
 
-def parseTime(timestr):
-    match = re.match('(\d+)-(\d+)-(\d+) (\d+):(\d+):(\d+)', timestr)
-    (year, month, day, hour, minute, second) = map(lambda x: int(x), match.groups())
-    time = datetime.datetime(year, month, day, hour, minute, second)
-
-    return time
-
 ###
 # fetching of remote files
 
@@ -260,11 +255,11 @@ def fetchFile(source, dest):
             if dirpart[0] != '/':
                 raise InvalidSource("Directory part of NFS path was not an absolute path.")
             filepart = os.path.basename(path)
-            xelogging.log("Split nfs path into server: %s, directory: %s, file: %s." % (server, dirpart, filepart))
+            logger.log("Split nfs path into server: %s, directory: %s, file: %s." % (server, dirpart, filepart))
 
             # make a mountpoint:
-            mntpoint = tempfile.mkdtemp(dir = '/tmp', prefix = 'fetchfile-nfs-')
-            mount('%s:%s' % (server, dirpart), mntpoint, fstype = "nfs", options = ['ro'])
+            mntpoint = tempfile.mkdtemp(dir='/tmp', prefix='fetchfile-nfs-')
+            mount('%s:%s' % (server, dirpart), mntpoint, fstype="nfs", options=['ro'])
             cleanup_dirs.append(mntpoint)
             source = 'file://%s/%s' % (mntpoint, filepart)
 
@@ -287,7 +282,7 @@ def fetchFile(source, dest):
             os.rmdir(d)
 
 def getUUID():
-    rc, out = runCmd2(['uuidgen'], with_stdout = True)
+    rc, out = runCmd2(['uuidgen'], with_stdout=True)
     assert rc == 0
 
     return out.strip()
@@ -297,26 +292,7 @@ def mkRandomHostname():
     s = "".join([random.choice(string.ascii_lowercase) for x in range(8)])
     return "%s-%s" % (BRAND_SERVER.split()[0].lower(),s)
 
-def splitNetloc(netloc):
-    hostname = netloc
-    username = None
-    password = None
-        
-    if "@" in netloc:
-        userinfo = netloc.split("@", 1)[0]
-        hostname = netloc.split("@", 1)[1]
-        if ":" in userinfo:
-            info = userinfo.split(":", 1)
-            username = urllib.unquote(info[0])
-            password = urllib.unquote(info[1])
-        else:
-            username = urllib.unquote(userinfo)
-    if ":" in hostname:
-        hostname = hostname.split(":", 1)[0]
-        
-    return (hostname, username, password)
-
-def splitArgs(argsIn, array_args = ()):
+def splitArgs(argsIn, array_args=()):
     """ Split argument array into dictionary
 
     [ '--alpha', '--beta=42' ]
@@ -333,17 +309,17 @@ def splitArgs(argsIn, array_args = ()):
             k = arg[:eq]
             v = arg[eq+1:]
             if k in array_args:
-                if argsOut.has_key(k):
+                if k in argsOut:
                     argsOut[k].append(v)
                 else:
                     argsOut[k] = [v]
             else:
                 argsOut[k] = v
 
-    return argsOut    
+    return argsOut
 
-def readKeyValueFile(filename, allowed_keys = None, strip_quotes = True):
-    """ Reads a KEY=Value style file (e.g. xensource-inventory). Returns a 
+def readKeyValueFile(filename, allowed_keys=None, strip_quotes=True):
+    """ Reads a KEY=Value style file (e.g. xensource-inventory). Returns a
     dictionary of key/values in the file.  Not designed for use with large files
     as the file is read entirely into memory."""
 
@@ -355,7 +331,7 @@ def readKeyValueFile(filename, allowed_keys = None, strip_quotes = True):
     if allowed_keys:
         lines = filter(lambda x: True in [x.startswith(y) for y in allowed_keys],
                        lines)
-    
+
     defs = [ (l[:l.find("=")], l[(l.find("=") + 1):]) for l in lines ]
 
     if strip_quotes:
@@ -387,3 +363,81 @@ def udevinfoCmd():
 
 def randomLabelStr():
     return "".join([random.choice(string.ascii_lowercase) for x in range(6)])
+
+def getLocalTime(timezone=None):
+    if timezone:
+        os.environ['TZ'] = timezone
+        time.tzset()
+
+    return datetime.datetime.now()
+
+def setLocalTime(timestring, timezone=None):
+    if timezone:
+        os.environ['TZ'] = timezone
+        time.tzset()
+
+    assert runCmd2("date --set='%s'" % timestring) == 0
+
+class URL(object):
+    """A wrapper around a URL string.
+
+    This is a wrapper around a URL string to avoid inadvertently logging
+    the username/password of a URL string."""
+
+    def __init__(self, url):
+        self.url = url
+        parts = urlparse.urlsplit(url)
+        self.scheme = parts.scheme
+        self.hostname = parts.hostname
+        self.username = parts.username
+        self.password = parts.password
+
+    def __str__(self):
+        """Returns the URL with username/password replaced with asterisks."""
+
+        if self.username is not None and self.password is not None:
+            return self.url.replace('%s:%s@' % (self.username, self.password), '***:***@', 1)
+        elif self.username is not None:
+            return self.url.replace('%s@' % self.username, '***:***@', 1)
+        else:
+            # Cannot have a password without a username
+            assert self.password is None
+
+            return self.url
+
+    def getScheme(self):
+        return self.scheme
+
+    def getHostname(self):
+        return self.hostname
+
+    def getUsername(self):
+        if self.username is None:
+            return None
+        return urllib.unquote(self.username)
+
+    def getPassword(self):
+        if self.password is None:
+            return None
+        return urllib.unquote(self.password)
+
+    def getURL(self):
+        """Get the full URL with username/password.
+
+        The usage of this should be carefully audited to ensure it is not
+        inadvertently logged (even as part of an exception)."""
+
+        return self.url
+
+    def getPlainURL(self):
+        """Get the URL without username/password."""
+
+        if self.username is not None and self.password is not None:
+            return self.url.replace('%s:%s@' % (self.username, self.password), '', 1)
+        elif self.username is not None:
+            return self.url.replace('%s@' % self.username, '', 1)
+        else:
+            # Cannot have a password without a username
+            assert self.password is None
+
+            return self.url

@@ -129,14 +129,6 @@ Common Elements
     Specifies interfaces to run Fibre Channel over Ethernet VLAN
     Discovery on.
 
-    Optional attributes:
-
-      dcb=bool
-
-        Specify if software-based Data Center Bridging is to be used.
-
-        Default: True
-
 
 (Re)Install Elements
 --------------------

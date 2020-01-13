@@ -1,7 +1,7 @@
-# Copyright (c) 2005-2006 XenSource, Inc. All use and distribution of this 
-# copyrighted material is governed by and subject to terms and conditions 
+# Copyright (c) 2005-2006 XenSource, Inc. All use and distribution of this
+# copyrighted material is governed by and subject to terms and conditions
 # as licensed by XenSource, Inc. All other rights reserved.
-# Xen, XenSource and XenEnterprise are either registered trademarks or 
+# Xen, XenSource and XenEnterprise are either registered trademarks or
 # trademarks of XenSource Inc. in the United States and/or other countries.
 
 ###
@@ -27,13 +27,13 @@ import gzip
 import shutil
 from xml.dom.minidom import parse
 
-import xelogging
 import diskutil
 import hardware
 import version
 import util
 from util import dev_null
 from xcp.version import *
+from xcp import logger
 import cpiofile
 from constants import *
 import xml.dom.minidom
@@ -68,7 +68,7 @@ class Repository(object):
     def accessor(self):
         return self._accessor
 
-    def check(self, progress = lambda x: ()):
+    def check(self, progress=lambda x: ()):
         """ Return a list of problematic packages. """
         def pkg_progress(start, end):
             def progress_fn(x):
@@ -110,6 +110,7 @@ plugins=0
 installonlypkgs=
 distroverpkg=xenserver-release
 reposdir=/tmp/repos
+history_record=false
 """ % _cachedir
 
     def __init__(self, accessor):
@@ -174,14 +175,21 @@ reposdir=/tmp/repos
         return installed_repos
 
     def _installPackages(self, progress_callback, mounts):
-        xelogging.log("URL: " + self._accessor.url())
+        url = self._accessor.url()
+        logger.log("URL: " + str(url))
         with open('/root/yum.conf', 'w') as yum_conf:
             yum_conf.write(self._yum_conf)
             yum_conf.write("""
 [install]
 name=install
 baseurl=%s
-""" % self._accessor.url())
+""" % url.getPlainURL())
+            username = url.getUsername()
+            if username is not None:
+                yum_conf.write("username=%s\n" % (url.getUsername(),))
+            password = url.getPassword()
+            if password is not None:
+                yum_conf.write("password=%s\n" % (url.getPassword(),))
 
         self.disableInitrdCreation(mounts['root'])
 
@@ -191,7 +199,7 @@ baseurl=%s
         yum_command = ['yum', '-c', '/root/yum.conf',
                        '--installroot', mounts['root'],
                        'install', '-y'] + self._targets
-        xelogging.log("Running yum: %s" % ' '.join(yum_command))
+        logger.log("Running yum: %s" % ' '.join(yum_command))
         p = subprocess.Popen(yum_command, stdout=subprocess.PIPE, stderr=stderr)
         count = 0
         total = 0
@@ -201,7 +209,7 @@ baseurl=%s
             if not line:
                 break
             line = line.rstrip()
-            xelogging.log("YUM: %s" % line)
+            logger.log("YUM: %s" % line)
             if line == 'Resolving Dependencies':
                 progress_callback(1)
             elif line == 'Dependencies Resolved':
@@ -223,10 +231,10 @@ baseurl=%s
         stderr.seek(0)
         stderr = stderr.read()
         if stderr:
-            xelogging.log("YUM stderr: %s" % stderr.strip())
+            logger.log("YUM stderr: %s" % stderr.strip())
 
         if rv:
-            xelogging.log("Yum exited with %d" % rv)
+            logger.log("Yum exited with %d" % rv)
             raise ErrorInstallingPackage("Error installing packages")
 
         shutil.rmtree(os.path.join(mounts['root'], self._cachedir))
@@ -287,6 +295,7 @@ class MainYumRepository(YumRepository):
                     self.keyfiles.append(keyfile)
         except Exception as e:
             accessor.finish()
+            logger.logException(e)
             raise RepoFormatError("Failed to read %s: %s" % (self.INFO_FILENAME, str(e)))
 
         self._parse_repodata(accessor)
@@ -333,7 +342,7 @@ class MainYumRepository(YumRepository):
                 outfh.close()
                 infh.close()
         except Exception as e:
-            xelogging.log(str(e))
+            logger.log(str(e))
             self._accessor.finish()
             raise ErrorInstallingPackage("Error installing key files")
         self._accessor.finish()
@@ -352,6 +361,7 @@ class UpdateYumRepository(YumRepository):
             try:
                 dom = xml.dom.minidom.parseString(updatefp.read())
             except Exception as e:
+                logger.logException(e)
                 raise RepoFormatError("Failed to read %s: %s" % (self.INFO_FILENAME, str(e)))
             finally:
                 updatefp.close()
@@ -362,6 +372,7 @@ class UpdateYumRepository(YumRepository):
             self._targets = [self._controlpkg, 'update-' + self._identifier]
         except Exception as e:
             accessor.finish()
+            logger.logException(e)
             raise RepoFormatError("Failed to read %s: %s" % (self.INFO_FILENAME, str(e)))
 
         self._parse_repodata(accessor)
@@ -389,6 +400,7 @@ installonlypkgs=
 distroverpkg=xenserver-release
 reposdir=/tmp/repos
 diskspacecheck=0
+history_record=false
 """ % _cachedir
 
     def __init__(self, accessor):
@@ -398,13 +410,21 @@ diskspacecheck=0
     @classmethod
     def isRepo(cls, accessor):
         if UpdateYumRepository.isRepo(accessor):
+            url = accessor.url()
             with open('/root/yum.conf', 'w') as yum_conf:
                 yum_conf.write(cls._yum_conf)
                 yum_conf.write("""
 [driverrepo]
 name=driverrepo
 baseurl=%s
-""" % accessor.url())
+""" % url.getPlainURL())
+                username = url.getUsername()
+                if username is not None:
+                    yum_conf.write("username=%s\n" % (url.getUsername(),))
+                password = url.getPassword()
+                if password is not None:
+                    yum_conf.write("password=%s\n" % (url.getPassword(),))
+
             # Check that the drivers group exists in the repo.
             rv, out = util.runCmd2(['yum', '-c', '/root/yum.conf',
                                     'group', 'summary', 'drivers'], with_stdout=True)
@@ -420,14 +440,14 @@ class RPMPackage(object):
         self.size = long(size)
         self.sha256sum = sha256sum
 
-    def check(self, fast = False, progress = lambda x : ()):
+    def check(self, fast=False, progress=lambda x : ()):
         """ Check a package against it's known checksum, or if fast is
         specified, just check that the package exists. """
         if fast:
             return self.repository.accessor().access(self.name)
         else:
             try:
-                xelogging.log("Validating package %s" % self.name)
+                logger.log("Validating package %s" % self.name)
                 namefp = self.repository.accessor().openAddress(self.name)
                 m = hashlib.sha256()
                 data = ''
@@ -444,7 +464,7 @@ class RPMPackage(object):
                 calculated = m.hexdigest()
                 valid = (self.sha256sum == calculated)
                 return valid
-            except Exception, e:
+            except Exception as e:
                 return False
 
 class Accessor:
@@ -496,10 +516,10 @@ class FilesystemAccessor(Accessor):
         return open(os.path.join(self.location, addr), 'r')
 
     def url(self):
-        return "file://%s" % self.location
+        return util.URL("file://%s" % self.location)
 
 class MountingAccessor(FilesystemAccessor):
-    def __init__(self, mount_types, mount_source, mount_options = ['ro']):
+    def __init__(self, mount_types, mount_source, mount_options=['ro']):
         (
             self.mount_types,
             self.mount_source,
@@ -516,9 +536,9 @@ class MountingAccessor(FilesystemAccessor):
             for fs in self.mount_types:
                 try:
                     util.mount(self.mount_source, self.location,
-                               options = self.mount_options,
-                               fstype = fs)
-                except util.MountFailureException, e:
+                               options=self.mount_options,
+                               fstype=fs)
+                except util.MountFailureException as e:
                     continue
                 else:
                     success = True
@@ -542,7 +562,7 @@ class MountingAccessor(FilesystemAccessor):
             self.finish()
 
 class DeviceAccessor(MountingAccessor):
-    def __init__(self, device, fs = ['iso9660', 'vfat', 'ext3']):
+    def __init__(self, device, fs=['iso9660', 'vfat', 'ext3']):
         """ Return a MountingAccessor for a device 'device', which should
         be a fully qualified path to a device node. """
         MountingAccessor.__init__(self, fs, device)
@@ -570,7 +590,7 @@ class URLFileWrapper:
     def __init__(self, delegate):
         self.delegate = delegate
         self.pos = 0
-        
+
     def __getattr__(self, name):
         return getattr(self.delegate, name)
 
@@ -579,7 +599,7 @@ class URLFileWrapper:
         self.pos += len(ret_val)
         return ret_val
 
-    def seek(self, offset, whence = 0):
+    def seek(self, offset, whence=0):
         consume = 0
         if whence == self.SEEK_SET:
             if offset >= self.pos:
@@ -588,7 +608,7 @@ class URLFileWrapper:
                 raise Exception('Backward seek not supported')
         else:
             raise Exception('Only SEEK_SET supported')
-           
+
         if consume > 0:
             step = 100000
             while consume > step:
@@ -599,51 +619,30 @@ class URLFileWrapper:
                 raise IOError('Seek beyond end of file')
 
 class URLAccessor(Accessor):
-    url_prefixes = ['http://', 'https://', 'ftp://', 'file://']
+    def __init__(self, url):
+        self._url = url
 
-    def __init__(self, baseAddress):
-        if not True in [ baseAddress.startswith(prefix) for prefix in self.url_prefixes ] :
-            xelogging.log("Base address: no known protocol specified, prefixing http://")
-            baseAddress = "http://" + baseAddress
-        if not baseAddress.endswith('/'):
-            xelogging.log("Base address: did not end with '/' but should be a directory so adding it.")
-            baseAddress += '/'
+        if self._url.getScheme() not in ['http', 'https', 'ftp', 'file']:
+            raise Exception('Unsupported URL scheme')
 
-        if baseAddress.startswith('http://'):
-            (scheme, netloc, path, params, query) = urlparse.urlsplit(baseAddress)
-            if netloc.endswith(':'):
-                baseAddress = baseAddress.replace(netloc, netloc[:-1])
-                netloc = netloc[:-1]
-            pos = baseAddress[7:].index('/')+7
-            path2 = baseAddress[pos:]
-            if '#' in path2:
-                new_path = path2.replace('#', '%23')
-                baseAddress = baseAddress.replace(path2, new_path)
-            (hostname, username, password) = util.splitNetloc(netloc)
-            if username != None:
-                xelogging.log("Using basic HTTP authentication: %s %s" % (username, password))
+        if self._url.getScheme() in ['http', 'https']:
+            username = self._url.getUsername()
+            if username is not None:
+                logger.log("Using basic HTTP authentication")
+                hostname = self._url.getHostname()
+                password = self._url.getPassword()
                 self.passman = urllib2.HTTPPasswordMgrWithDefaultRealm()
                 self.passman.add_password(None, hostname, username, password)
                 self.authhandler = urllib2.HTTPBasicAuthHandler(self.passman)
                 self.opener = urllib2.build_opener(self.authhandler)
                 urllib2.install_opener(self.opener)
-                if password == None:
-                    self.baseAddress = baseAddress.replace('%s@' % username, '', 1)
-                else:
-                    self.baseAddress = baseAddress.replace('%s:%s@' % (username, password), '', 1)
-            else:
-                self.baseAddress = baseAddress
-        else:
-            self.baseAddress = baseAddress
 
-        self.fullAddress = baseAddress
-
-        xelogging.log("Initializing URLRepositoryAccessor with base address %s" % self.baseAddress)
+        logger.log("Initializing URLRepositoryAccessor with base address %s" % str(self._url))
 
     def _url_concat(url1, end):
-        assert url1.endswith('/')
+        url1 = url1.rstrip('/')
         end = end.lstrip('/')
-        return url1 + urllib.quote(end)
+        return url1 + '/' + urllib.quote(end)
     _url_concat = staticmethod(_url_concat)
 
     def _url_decode(url):
@@ -666,20 +665,22 @@ class URLAccessor(Accessor):
         pass
 
     def access(self, path):
-        if not self._url_concat(self.baseAddress, path).startswith('ftp://'):
+        if not self._url.getScheme == 'ftp':
             return Accessor.access(self, path)
 
-        url = self._url_concat(self.baseAddress, path)
+        url = self._url_concat(self._url.getPlainURL(), path)
 
         # if FTP, override by actually checking the file exists because urllib2 seems
         # to be not so good at this.
         try:
             (scheme, netloc, path, params, query) = urlparse.urlsplit(url)
-            (hostname, username, password) = util.splitNetloc(netloc)
             fname = os.path.basename(path)
             directory = self._url_decode(os.path.dirname(path[1:]))
+            hostname = self._url.getHostname()
+            username = self._url.getUsername()
+            password = self._url.getPassword()
 
-            # now open a connection to the server and verify that fname is in 
+            # now open a connection to the server and verify that fname is in
             ftp = ftplib.FTP(hostname)
             ftp.login(username, password)
             ftp.cwd(directory)
@@ -692,11 +693,14 @@ class URLAccessor(Accessor):
             return False
 
     def openAddress(self, address):
-        ret_val = urllib2.urlopen(self._url_concat(self.baseAddress, address))
+        if self._url.getScheme() in ['http', 'https']:
+            ret_val = urllib2.urlopen(self._url_concat(self._url.getPlainURL(), address))
+        else:
+            ret_val = urllib2.urlopen(self._url_concat(self._url.getURL(), address))
         return URLFileWrapper(ret_val)
 
     def url(self):
-        return self.fullAddress
+        return self._url
 
 def repositoriesFromDefinition(media, address, drivers=False):
     if media == 'local':
@@ -706,10 +710,10 @@ def repositoriesFromDefinition(media, address, drivers=False):
         accessors = { 'filesystem': FilesystemAccessor,
                       'url': URLAccessor,
                       'nfs': NFSAccessor }
-        if accessors.has_key(media):
+        if media in accessors:
             accessor = accessors[media](address)
         else:
-            raise RuntimeError, "Unknown repository media %s" % media
+            raise RuntimeError("Unknown repository media %s" % media)
 
         accessor.start()
         if drivers:
@@ -722,7 +726,7 @@ def repositoriesFromDefinition(media, address, drivers=False):
 def findRepositoriesOnMedia(drivers=False):
     """ Returns a list of repositories available on local media. """
 
-    static_device_patterns = [ 'sd*', 'scd*', 'sr*', 'xvd*', 'nvme*n*' ]
+    static_device_patterns = [ 'sd*', 'scd*', 'sr*', 'xvd*', 'nvme*n*', 'vd*' ]
     static_devices = []
     for pattern in static_device_patterns:
         static_devices.extend(map(os.path.basename, glob.glob('/sys/block/' + pattern)))
@@ -751,7 +755,7 @@ def findRepositoriesOnMedia(drivers=False):
     try:
         for check in parent_devices + partitions:
             device_path = "/dev/%s" % check
-            xelogging.log("Looking for repositories: %s" % device_path)
+            logger.log("Looking for repositories: %s" % device_path)
             if os.path.exists(device_path):
                 da = DeviceAccessor(device_path)
                 try:

@@ -1,7 +1,7 @@
-# Copyright (c) 2009 Citrix, Inc. All use and distribution of this 
-# copyrighted material is governed by and subject to terms and conditions 
+# Copyright (c) 2009 Citrix, Inc. All use and distribution of this
+# copyrighted material is governed by and subject to terms and conditions
 # as licensed by XenSource, Inc. All other rights reserved.
-# Xen, XenSource and XenEnterprise are either registered trademarks or 
+# Xen, XenSource and XenEnterprise are either registered trademarks or
 # trademarks of Citrix, Inc. in the United States and/or other countries.
 
 ###
@@ -22,7 +22,7 @@ import generalui
 import urlparse
 import urllib
 import util
-import xelogging
+from xcp import logger
 
 def selectDefault(key, entries):
     """ Given a list of (text, key) and a key to select, returns the appropriate
@@ -48,8 +48,9 @@ def check_repo_def(definition, require_base_repo):
         tui.progress.showMessageDialog("Please wait", "Searching for repository...")
         repos = repository.repositoriesFromDefinition(*definition)
         tui.progress.clearModelessDialog()
-    except Exception, e:
-        xelogging.log("Exception trying to access repository: %s" % e)
+    except Exception as e:
+        logger.log("Exception trying to access repository: %s" % e)
+        logger.logException(e)
         tui.progress.clearModelessDialog()
         return REPOCHK_NO_ACCESS
     else:
@@ -91,7 +92,7 @@ def interactive_check_repo_def(definition, require_base_repo):
     else:
         return True
 
-def select_repo_source(answers, title, text, require_base_repo = True):
+def select_repo_source(answers, title, text, require_base_repo=True):
     ENTRY_LOCAL = 'Local media', 'local'
     ENTRY_URL = 'HTTP or FTP', 'url'
     ENTRY_NFS = 'NFS', 'nfs'
@@ -102,7 +103,7 @@ def select_repo_source(answers, title, text, require_base_repo = True):
         entries += [ ENTRY_URL, ENTRY_NFS ]
 
         # default selection?
-        if answers.has_key('source-media'):
+        if 'source-media' in answers:
             default = selectDefault(answers['source-media'], entries)
 
     (button, entry) = ListboxChoiceWindow(
@@ -110,13 +111,13 @@ def select_repo_source(answers, title, text, require_base_repo = True):
         title,
         text,
         entries,
-        ['Ok', 'Back'], default=default, help = 'selreposrc'
+        ['Ok', 'Back'], default=default, help='selreposrc'
         )
 
     if button == 'back': return LEFT_BACKWARDS
 
     # clear the source-address key?
-    if answers.has_key('source-media') and answers['source-media'] != entry:
+    if 'source-media' in answers and answers['source-media'] != entry:
         answers['source-address'] = ""
 
     # store their answer:
@@ -134,24 +135,17 @@ def get_url_location(answers, require_base_repo):
     text = "Please enter the URL for your HTTP or FTP repository and, optionally, a username and password"
     url_field = Entry(50)
     user_field = Entry(16)
-    passwd_field = Entry(16, password = 1)
+    passwd_field = Entry(16, password=1)
     url_text = Textbox(11, 1, "URL:")
     user_text = Textbox(11, 1, "Username:")
     passwd_text = Textbox(11, 1, "Password:")
 
-    if answers.has_key('source-address'):
-        url = answers['source-address']
-        (scheme, netloc, path, params, query) = urlparse.urlsplit(url)
-        (hostname, username, password) = util.splitNetloc(netloc)
-        if username != None:
-            user_field.set(urllib.unquote(username))
-            if password == None:
-                url_field.set(url.replace('%s@' % username, '', 1))
-            else:
-                passwd_field.set(urllib.unquote(password))
-                url_field.set(url.replace('%s:%s@' % (username, password), '', 1))
-        else:
-            url_field.set(url)
+    if 'source-address' in answers and answers['source-address'] != '':
+        url_field.set(answers['source-address'].getPlainURL())
+        if answers['source-address'].getUsername() is not None:
+            user_field.set(answers['source-address'].getUsername())
+        if answers['source-address'].getPassword() is not None:
+            passwd_field.set(answers['source-address'].getPassword())
 
     done = False
     while not done:
@@ -163,13 +157,13 @@ def get_url_location(answers, require_base_repo):
         entry_grid.setField(url_text, 0, 0)
         entry_grid.setField(url_field, 1, 0)
         entry_grid.setField(user_text, 0, 1)
-        entry_grid.setField(user_field, 1, 1, anchorLeft = 1)
+        entry_grid.setField(user_field, 1, 1, anchorLeft=1)
         entry_grid.setField(passwd_text, 0, 2)
-        entry_grid.setField(passwd_field, 1, 2, anchorLeft = 1)
+        entry_grid.setField(passwd_field, 1, 2, anchorLeft=1)
 
-        gf.add(t, 0, 0, padding = (0, 0, 0, 1))
-        gf.add(entry_grid, 0, 1, padding = (0, 0, 0, 1))
-        gf.add(bb, 0, 2, growx = 1)
+        gf.add(t, 0, 0, padding=(0, 0, 0, 1))
+        gf.add(entry_grid, 0, 1, padding=(0, 0, 0, 1))
+        gf.add(bb, 0, 2, growx=1)
 
         button = bb.buttonPressed(gf.runOnce())
 
@@ -179,23 +173,24 @@ def get_url_location(answers, require_base_repo):
             quoted_user = urllib.quote(user_field.value(), safe='')
             if passwd_field.value() != '':
                 quoted_passwd = urllib.quote(passwd_field.value(), safe='')
-                answers['source-address'] = url_field.value().replace('//', '//%s:%s@' % (quoted_user, quoted_passwd), 1)
+                urlstr = url_field.value().replace('//', '//%s:%s@' % (quoted_user, quoted_passwd), 1)
             else:
-                answers['source-address'] = url_field.value().replace('//', '//%s@' % quoted_user, 1)
+                urlstr = url_field.value().replace('//', '//%s@' % quoted_user, 1)
         else:
-            answers['source-address'] = url_field.value()
-        if len(answers['source-address']) > 0:
+            urlstr = url_field.value()
+        if len(urlstr) > 0:
+            answers['source-address'] = util.URL(urlstr)
             done = interactive_check_repo_def((answers['source-media'], answers['source-address']), require_base_repo)
-            
+
     return RIGHT_FORWARDS
 
 def get_nfs_location(answers, require_base_rep):
     text = "Please enter the server and path of your NFS share (e.g. myserver:/my/directory)"
     label = "NFS Path:"
-        
+
     done = False
     while not done:
-        if answers.has_key('source-address'):
+        if 'source-address' in answers:
             default = answers['source-address']
         else:
             default = ""
@@ -203,15 +198,15 @@ def get_nfs_location(answers, require_base_rep):
             tui.screen,
             "Specify Repository",
             text,
-            [(label, default)], entryWidth = 50, width = 50,
-            buttons = ['Ok', 'Back'], help = 'getnfsloc')
-            
+            [(label, default)], entryWidth=50, width=50,
+            buttons=['Ok', 'Back'], help='getnfsloc')
+
         answers['source-address'] = result[0]
 
         if button == 'back': return LEFT_BACKWARDS
 
         done = interactive_check_repo_def((answers['source-media'], answers['source-address']), require_base_rep)
-            
+
     return RIGHT_FORWARDS
 
 def get_source_location(answers, require_base_rep):
@@ -233,7 +228,8 @@ def confirm_load_repo(answers, label, installed_repos):
         tui.progress.showMessageDialog("Please wait", "Searching for repository...")
         repos = repository.repositoriesFromDefinition(media, address, drivers=(label == 'driver'))
         tui.progress.clearModelessDialog()
-    except:
+    except Exception as e:
+        logger.logException(e)
         ButtonChoiceWindow(
             tui.screen, "Error",
             """Unable to access location specified.  Please check the address was valid and/or that the media was inserted correctly, and try again.""",
@@ -242,7 +238,7 @@ def confirm_load_repo(answers, label, installed_repos):
 
     if label != 'driver':
         repos = filter(lambda r: r.identifier() != constants.MAIN_REPOSITORY_NAME, repos)
-        
+
     if len(repos) == 0:
         ButtonChoiceWindow(
             tui.screen, "No %s Found" % cap_label,
@@ -257,7 +253,7 @@ def confirm_load_repo(answers, label, installed_repos):
     else:
         text = TextboxReflowed(54, "The following %ss were found:\n\n" % label)
     buttons = ButtonBar(tui.screen, [('Use', 'use'), ('Verify', 'verify'), ('Back', 'back')])
-    cbt = CheckboxTree(4, scroll = 1)
+    cbt = CheckboxTree(4, scroll=1)
     for r in repos:
         if str(r) in installed_repos:
             cbt.append("%s (already installed)" % r.name(), r, False)
@@ -266,9 +262,9 @@ def confirm_load_repo(answers, label, installed_repos):
             default_button = VERIFY
 
     gf = GridFormHelp(tui.screen, 'Load Repository', 'loadrepo', 1, 3)
-    gf.add(text, 0, 0, padding = (0, 0, 0, 1))
-    gf.add(cbt, 0, 1, padding = (0, 0, 0, 1))
-    gf.add(buttons, 0, 2, growx = 1)
+    gf.add(text, 0, 0, padding=(0, 0, 0, 1))
+    gf.add(cbt, 0, 1, padding=(0, 0, 0, 1))
+    gf.add(buttons, 0, 2, growx=1)
     gf.draw()
 
     done = False
@@ -289,7 +285,7 @@ def confirm_load_repo(answers, label, installed_repos):
                 text2 = "\n\nWould you like to test your %s repository?  This may cause significant network traffic." % label
 
             rc2 = ButtonChoiceWindow(
-                tui.screen, "Repository Information", text2, ['Ok', 'Back'], width = 60)
+                tui.screen, "Repository Information", text2, ['Ok', 'Back'], width=60)
             if rc2 == 'ok' and interactive_source_verification(selected_repos, label):
                 default_button = USE
 
@@ -321,7 +317,7 @@ def verify_source(answers, label, require_base_repo):
     while not done:
         (button, entry) = ListboxChoiceWindow(
             tui.screen, "Verify %s Source" % cap_label, text,
-            entries, ['Ok', 'Back'], default = default, help = 'vfyrepo')
+            entries, ['Ok', 'Back'], default=default, help='vfyrepo')
 
         if button == 'back': return LEFT_BACKWARDS
 
@@ -340,7 +336,7 @@ def verify_source(answers, label, require_base_repo):
                 else:
                     done = interactive_source_verification(repos, label)
             except Exception as e:
-                xelogging.logException(e)
+                logger.logException(e)
                 ButtonChoiceWindow(
                     tui.screen, "Error",
                     """Unable to access location specified.  Please check the address was valid and/or that the media was inserted correctly, and try again.""",

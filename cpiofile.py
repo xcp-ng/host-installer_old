@@ -3,7 +3,7 @@
 #-------------------------------------------------------------------
 # cpiofile.py
 #-------------------------------------------------------------------
-# Copyright (C) 2008 
+# Copyright (C) 2008
 # All rights reserved.
 #
 # Permission  is  hereby granted,  free  of charge,  to  any person
@@ -53,7 +53,7 @@ if sys.platform == 'mac':
     # handling. In many places it is assumed a simple substitution of / by the
     # local os.path.sep is good enough to convert pathnames, but this does not
     # work with the mac rooted:path:name versus :nonrooted:path:name syntax
-    raise ImportError, "cpiofile does not work for platform==mac"
+    raise ImportError("cpiofile does not work for platform==mac")
 
 try:
     import grp, pwd
@@ -1096,7 +1096,7 @@ class CpioFile(object):
             buf = trailer.tobuf()
             self.fileobj.write(buf)
             self.offset += len(buf)
-            
+
 #            blocks, remainder = divmod(self.offset, BLOCKSIZE)
 #            if remainder > 0:
 #                self.fileobj.write((BLOCKSIZE - remainder) * NUL)
@@ -1281,7 +1281,7 @@ class CpioFile(object):
         cpioinfo = copy.copy(cpioinfo)
 
         if cpioinfo.nlink > 1:
-            if self.hardlinks and self.inodes.has_key(cpioinfo.ino):
+            if self.hardlinks and cpioinfo.ino in self.inodes:
                 # this inode has already been added
                 cpioinfo.size = 0
                 self.inodes[cpioinfo.ino].append(cpioinfo.name)
@@ -1340,7 +1340,7 @@ class CpioFile(object):
                 self.chown(cpioinfo, path)
                 self.utime(cpioinfo, path)
                 self.chmod(cpioinfo, path)
-            except ExtractError, e:
+            except ExtractError as e:
                 if self.errorlevel > 1:
                     raise
                 else:
@@ -1366,7 +1366,7 @@ class CpioFile(object):
 
         try:
             self._extract_member(cpioinfo, os.path.join(path, cpioinfo.name))
-        except EnvironmentError, e:
+        except EnvironmentError as e:
             if self.errorlevel > 0:
                 raise
             else:
@@ -1374,7 +1374,7 @@ class CpioFile(object):
                     self._dbg(1, "cpiofile: %s" % e.strerror)
                 else:
                     self._dbg(1, "cpiofile: %s %r" % (e.strerror, e.filename))
-        except ExtractError, e:
+        except ExtractError as e:
             if self.errorlevel > 1:
                 raise
             else:
@@ -1471,7 +1471,7 @@ class CpioFile(object):
         """
         try:
             os.mkdir(cpiogetpath)
-        except EnvironmentError, e:
+        except EnvironmentError as e:
             if e.errno != errno.EEXIST:
                 raise
 
@@ -1482,7 +1482,7 @@ class CpioFile(object):
         if cpioinfo.nlink == 1:
             extractinfo = cpioinfo
         else:
-            if self.inodes.has_key(cpioinfo.ino):
+            if cpioinfo.ino in self.inodes:
                 # actual file exists, create link
                 # FIXME handle platforms that don't support hardlinks
                 os.link(os.path.join(cpioinfo._link_path, self.inodes[cpioinfo.ino][0]), cpiogetpath)
@@ -1546,11 +1546,11 @@ class CpioFile(object):
 
             try:
                 self._extract_member(self.getmember(linkpath), cpiogetpath)
-            except (EnvironmentError, KeyError), e:
+            except (EnvironmentError, KeyError) as e:
                 linkpath = os.path.normpath(linkpath)
                 try:
                     shutil.copy2(linkpath, cpiogetpath)
-                except EnvironmentError, e:
+                except EnvironmentError as e:
                     raise IOError("link could not be created")
 
     def chown(self, cpioinfo, cpiogetpath):
@@ -1572,7 +1572,7 @@ class CpioFile(object):
                 else:
                     if sys.platform != "os2emx":
                         os.chown(cpiogetpath, u, g)
-            except EnvironmentError, e:
+            except EnvironmentError as e:
                 raise ExtractError("could not change owner")
 
     def chmod(self, cpioinfo, cpiogetpath):
@@ -1581,7 +1581,7 @@ class CpioFile(object):
         if hasattr(os, 'chmod'):
             try:
                 os.chmod(cpiogetpath, cpioinfo.mode)
-            except EnvironmentError, e:
+            except EnvironmentError as e:
                 raise ExtractError("could not change mode")
 
     def utime(self, cpioinfo, cpiogetpath):
@@ -1595,7 +1595,7 @@ class CpioFile(object):
             return
         try:
             os.utime(cpiogetpath, (cpioinfo.mtime, cpioinfo.mtime))
-        except EnvironmentError, e:
+        except EnvironmentError as e:
             raise ExtractError("could not change modification time")
 
     #--------------------------------------------------------------------------
@@ -1640,7 +1640,7 @@ class CpioFile(object):
 
             cpioinfo = self.proc_member(cpioinfo)
 
-        except ValueError, e:
+        except ValueError as e:
             if self.offset == 0:
                 raise ReadError("empty, unreadable or compressed "
                                 "file: %s" % e)

@@ -1,8 +1,8 @@
 #!/usr/bin/env python
-# Copyright (c) 2005-2006 XenSource, Inc. All use and distribution of this 
-# copyrighted material is governed by and subject to terms and conditions 
+# Copyright (c) 2005-2006 XenSource, Inc. All use and distribution of this
+# copyrighted material is governed by and subject to terms and conditions
 # as licensed by XenSource, Inc. All other rights reserved.
-# Xen, XenSource and XenEnterprise are either registered trademarks or 
+# Xen, XenSource and XenEnterprise are either registered trademarks or
 # trademarks of XenSource Inc. in the United States and/or other countries.
 
 ###
@@ -41,16 +41,17 @@ import restore
 import repository
 import xelogging
 import scripts
+from xcp import logger
 
 # fcoe
 import fcoeutil
 
 def main(args):
     ui = tui
-    xelogging.log("Starting user interface")
+    logger.log("Starting user interface")
     ui.init_ui()
     status = go(ui, args, None, None)
-    xelogging.log("Shutting down user interface")
+    logger.log("Shutting down user interface")
     ui.end_ui()
     return status
 
@@ -87,7 +88,7 @@ def fixMpathResults(results):
                 # Also, since the DM nodes are multipathed SANs it doesn't make sense to include them
                 # in the "Local" SR.
                 if master != primary_disk:
-                    raise Exception, "Non-local disk %s specified to be added to Local SR" % disk
+                    raise Exception("Non-local disk %s specified to be added to Local SR" % disk)
                 disk = master
             disks.append(disk)
         results['guest-disks'] = disks
@@ -97,7 +98,7 @@ def fixMpathResults(results):
 def go(ui, args, answerfile_address, answerfile_script):
     extra_repo_defs = []
     results = {
-        'keymap': None, 
+        'keymap': None,
         'serial-console': None,
         'operation': init_constants.OPERATION_INSTALL,
         'boot-serial': False,
@@ -113,7 +114,7 @@ def go(ui, args, answerfile_address, answerfile_script):
     boot_console = None
     boot_serial = False
 
-    if not xen_control_domain() or args.has_key('--virtual'):
+    if not xen_control_domain() or '--virtual' in args:
         hardware.useVMHardwareFunctions()
 
     for (opt, val) in args.items():
@@ -129,7 +130,7 @@ def go(ui, args, answerfile_address, answerfile_script):
                 boot_serial = True
         elif opt == "--keymap":
             results["keymap"] = val
-            xelogging.log("Keymap specified on command-line: %s" % val)
+            logger.log("Keymap specified on command-line: %s" % val)
         elif opt == "--extrarepo":
             extra_repo_defs += val
         elif opt == "--onecd":
@@ -137,10 +138,10 @@ def go(ui, args, answerfile_address, answerfile_script):
         elif opt == "--disable-gpt":
             constants.GPT_SUPPORT = False
             results["create-new-partitions"] = False
-            xelogging.log("Forcing DOS partition table and old partition layout via command-line")
+            logger.log("Forcing DOS partition table and old partition layout via command-line")
         elif opt == "--legacy-partitions":
             results["create-new-partitions"] = False
-            xelogging.log("Forcing old partition layout via command-line")
+            logger.log("Forcing old partition layout via command-line")
         elif opt == "--cc-preparations":
             constants.CC_PREPARATIONS = True
             results['network-backend'] = constants.NETWORK_BACKEND_BRIDGE
@@ -152,7 +153,7 @@ def go(ui, args, answerfile_address, answerfile_script):
         try:
             results['serial-console'] = hardware.SerialPort.from_string(serial_console)
             results['boot-serial'] = boot_serial
-            xelogging.log("Serial console specified on command-line: %s, default boot: %s" % 
+            logger.log("Serial console specified on command-line: %s, default boot: %s" %
                           (serial_console, boot_serial))
         except:
             pass
@@ -168,10 +169,10 @@ def go(ui, args, answerfile_address, answerfile_script):
             results.update(defaults)
 
         # loading an answerfile?
-        assert ui != None or answerfile_address != None or answerfile_script != None
+        assert ui is not None or answerfile_address is not None or answerfile_script is not None
 
         if answerfile_address and answerfile_script:
-            raise RuntimeError, "Both answerfile and answerfile generator passed on command line."
+            raise RuntimeError("Both answerfile and answerfile generator passed on command line.")
 
         a = None
         parsing_except = None
@@ -188,10 +189,10 @@ def go(ui, args, answerfile_address, answerfile_script):
 
                 if ui and results.get('ui-confirmation-prompt',False):
                     if not ui.init.confirm_proceed():
-                        xelogging.log("User did not confirm installation. Reboot")
+                        logger.log("User did not confirm installation. Reboot")
                         return constants.EXIT_USER_CANCEL
 
-                if results.has_key('extra-repos'):
+                if 'extra-repos' in results:
                     # load drivers now
                     for media, address in results['extra-repos']:
                         for r in repository.repositoriesFromDefinition(media, address, drivers=True):
@@ -213,12 +214,12 @@ def go(ui, args, answerfile_address, answerfile_script):
 
                 results.update(a.processAnswerfile())
                 results = fixMpathResults(results)
-            except Exception, e:
-                xelogging.logException(e)
+            except Exception as e:
+                logger.logException(e)
                 parsing_except = e
 
         results['extra-repos'] += extra_repo_defs
-        xelogging.log("Driver repos: %s" % str(results['extra-repos']))
+        logger.log("Driver repos: %s" % str(results['extra-repos']))
 
         scripts.run_scripts('installation-start')
 
@@ -226,7 +227,7 @@ def go(ui, args, answerfile_address, answerfile_script):
             raise parsing_except
 
         # log the modules that we loaded:
-        xelogging.log("All needed modules should now be loaded. We have loaded:")
+        logger.log("All needed modules should now be loaded. We have loaded:")
         util.runCmd2(["lsmod"])
 
         status = constants.EXIT_OK
@@ -252,11 +253,11 @@ def go(ui, args, answerfile_address, answerfile_script):
 
         if not aborted:
             if results['install-type'] == constants.INSTALL_TYPE_RESTORE:
-                xelogging.log('INPUT ANSWER DICTIONARY')
+                logger.log('INPUT ANSWER DICTIONARY')
                 backend.prettyLogAnswers(results)
-                xelogging.log("SCRIPTS DICTIONARY:")
+                logger.log("SCRIPTS DICTIONARY:")
                 backend.prettyLogAnswers(scripts.script_dict)
-                xelogging.log("Starting actual restore")
+                logger.log("Starting actual restore")
                 backup = results['backup-to-restore']
                 if ui:
                     pd = tui.progress.initProgressDialog("Restoring %s" % backup,
@@ -270,49 +271,49 @@ def go(ui, args, answerfile_address, answerfile_script):
                     tui.progress.clearModelessDialog()
                     tui.progress.OKDialog("Restore", "The restore operation completed successfully.")
             else:
-                xelogging.log("Starting actual installation")
+                logger.log("Starting actual installation")
                 backend.performInstallation(results, ui, interactive)
 
                 if ui and interactive:
                     ui.installer.screens.installation_complete()
-            
-                xelogging.log("The installation completed successfully.")
+
+                logger.log("The installation completed successfully.")
         else:
-            xelogging.log("The user aborted the installation from within the user interface.")
+            logger.log("The user aborted the installation from within the user interface.")
             status = constants.EXIT_USER_CANCEL
-    except Exception, e:
+    except Exception as e:
         try:
             # first thing to do is to get the traceback and log it:
             ex = sys.exc_info()
             err = str.join("", traceback.format_exception(*ex))
-            xelogging.log("INSTALL FAILED.")
-            xelogging.log("A fatal exception occurred:")
-            xelogging.log(err)
+            logger.log("INSTALL FAILED.")
+            logger.log("A fatal exception occurred:")
+            logger.log(err)
 
             # run the user's scripts - an arg of "1" indicates failure
             scripts.run_scripts('installation-complete', '1')
-    
+
             # collect logs where possible
             xelogging.collectLogs("/tmp")
-    
+
             # now display a friendly error dialog:
             if ui:
                 ui.exn_error_dialog("install-log", True, interactive)
             else:
                 txt = constants.error_string(str(e), 'install-log', True)
-                xelogging.log(txt)
-    
+                logger.log(txt)
+
             # and now on the disk if possible:
             if 'primary-disk' in results and 'primary-partnum' in results and 'logs-partnum' in results:
                 backend.writeLog(results['primary-disk'], results['primary-partnum'], results['logs-partnum'])
             elif 'primary-disk' in results and 'primary-partnum' in results:
                 backend.writeLog(results['primary-disk'], results['primary-partnum'], None)
-    
-            xelogging.log(results)
-        except Exception, e:
+
+            logger.log(results)
+        except Exception as e:
             # Don't let logging exceptions prevent subsequent actions
             print 'Logging failed: '+str(e)
-            
+
         # exit with failure status:
         status = constants.EXIT_ERROR
 
@@ -333,8 +334,8 @@ def go(ui, args, answerfile_address, answerfile_script):
             backend.writeLog(results['primary-disk'], results['primary-partnum'], None)
 
         assert (status == constants.EXIT_OK or status == constants.EXIT_USER_CANCEL)
-        
+
     return status
 
 if __name__ == "__main__":
-    sys.exit(main(util.splitArgs(sys.argv[1:], array_args = ('--extrarepo'))))
+    sys.exit(main(util.splitArgs(sys.argv[1:], array_args=('--extrarepo'))))

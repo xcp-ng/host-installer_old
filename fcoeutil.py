@@ -2,7 +2,7 @@
 # copyrighted material is governed by and subject to terms and conditions
 # as licensed by Citrix Systems, Inc. All other rights reserved.
 # Xen, XenSource and XenEnterprise are either registered trademarks or
-# trademarks of Citrix Systems, Inc. in the United States and/or other 
+# trademarks of Citrix Systems, Inc. in the United States and/or other
 # countries.
 
 ###
@@ -17,16 +17,28 @@ import constants
 import util
 import netutil
 from util import dev_null
-import xelogging
+from xcp import logger
 from disktools import *
 import time
 
 def start_lldpad():
     util.runCmd2(['/sbin/lldpad', '-d'])
 
+    # Wait for lldpad to be ready
+    retries = 0
+    while True:
+        retries += 1
+        if util.runCmd2(['lldptool', '-p']) == 0:
+            break
+        if retries == 10:
+            raise Exception('Timed out waiting for lldpad to be ready')
+        time.sleep(1)
+
+def hw_lldp_capable(intf):
+    return netutil.getDriver(intf) == 'bnx2x'
+
 def start_fcoe(interfaces):
-    ''' startFCoE takes dictonary of {interface: dcb config}
-        dcb config could be either True or False
+    ''' startFCoE takes a list of interfaces
 
         and returns a dictonary {interface:result}
         result could be either OK or error returned from fipvlan
@@ -37,37 +49,47 @@ def start_fcoe(interfaces):
     modprobe bnx2fc if required.
     '''
 
+    dcb_wait = True
     result = {}
 
     start_lldpad()
     util.runCmd2(['/sbin/modprobe', 'sg'])
+    util.runCmd2(['/sbin/modprobe', 'libfc'])
     util.runCmd2(['/sbin/modprobe', 'fcoe'])
+    util.runCmd2(['/sbin/modprobe', 'bnx2fc'])
 
-    for interface, dcb in interfaces.iteritems():
-        if netutil.getDriver(interface) == 'bnx2x':
-            # This will do modprobe multiple times
-            util.runCmd2(['/sbin/modprobe', 'bnx2fc'])
-        if dcb:
+    for interface in interfaces:
+        if hw_lldp_capable(interface):
+            if dcb_wait:
+                # Wait for hardware to do dcb negotiation
+                dcb_wait = False
+                time.sleep(15)
+
+            util.runCmd2(['/sbin/lldptool', '-i', interface, '-L',
+                          'adminStatus=disabled'])
+        else:
+            # Ideally this would use fcoemon to start FCoE but this doesn't
+            # fit the host-installer use case because it is possible to start
+            # one interface at a time.
             util.runCmd2(['/sbin/dcbtool', 'sc', interface, 'dcb', 'on'])
             util.runCmd2(['/sbin/dcbtool', 'sc', interface, 'app:fcoe',
                           'e:1'])
             util.runCmd2(['/sbin/dcbtool', 'sc', interface, 'pfc',
                           'e:1', 'a:1', 'w:1'])
-        else:
-            util.runCmd2(['/sbin/lldptool', '-i', interface, '-L',
-                          'adminStatus=disabled'])
 
-    for interface in interfaces:
-        xelogging.log("Starting fipvlan on %s"% interface)
+            # wait for dcbtool changes to take effect
+            time.sleep(1)
 
-        rc, out, err = util.runCmd2(['/usr/sbin/fipvlan',
-                                     '-s', '-c', interface], True, True)
+        logger.log('Starting fipvlan on %s' % interface)
+
+        rc, err = util.runCmd2(['/usr/sbin/fipvlan', '-s', '-c', interface],
+                                with_stderr=True)
         if rc != 0:
             result[interface] = err
         else:
-            result[interface] = "OK"
+            result[interface] = 'OK'
 
-    xelogging.log(result)
+    logger.log(result)
 
     # Wait for block devices to appear.
     # Without being able to know how long this will take and because LUNs can
@@ -77,28 +99,28 @@ def start_fcoe(interfaces):
     util.runCmd2(util.udevsettleCmd())
     for interface, status in result.iteritems():
         if status == 'OK':
-            xelogging.log(get_luns_on_intf(interface))
+            logger.log(get_luns_on_intf(interface))
 
     return result
 
-def get_dcb_capable_ifaces(check_lun):
-    ''' Return all dcb capable interfaces.
+def get_fcoe_capable_ifaces(check_lun):
+    ''' Return all FCoE capable interfaces.
         if checkLun is True, then this routine
         will check if there are any LUNs associated
         with an interface and will exclued them
-        from the dictonary that is returned.
+        from the list that is returned.
     '''
 
     start_lldpad()
 
-    dcb_nics = {}
+    dcb_nics = []
     nics = netutil.scanConfiguration()
 
     def get_dcb_capablity(interface):
-        ''' checks if a NIC is dcb capable.
+        ''' checks if a NIC is dcb capable (in hardware or software).
             If netdev for an interface has dcbnl_ops defined
             then this interface is deemed dcb capable.
-            dcbtool gc ethX dcb will return Status = Successful if netdev 
+            dcbtool gc ethX dcb will return Status = Successful if netdev
             has dcbnl_ops defined.
         '''
 
@@ -111,20 +133,13 @@ def get_dcb_capable_ifaces(check_lun):
             outlist = output.split('\n')
             outstr = outlist[3]
             outdata = outstr.split(':')
-            if "Successful" in outdata[1]:
-                return True
-            else:
-                return False
+            return "Successful" in outdata[1]
 
     for nic, conf in nics.iteritems():
         if get_dcb_capablity(nic):
             if check_lun and len(get_luns_on_intf(nic)) > 0:
                 continue
-            if netutil.getDriver(nic) == 'bnx2x':
-                # These nics are capable of doing dcb in hardware
-                dcb_nics[nic] = False
-            else:
-                dcb_nics[nic] = True
+            dcb_nics.append(nic)
 
     return dcb_nics
 

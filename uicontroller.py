@@ -1,7 +1,7 @@
-# Copyright (c) 2005-2006 XenSource, Inc. All use and distribution of this 
-# copyrighted material is governed by and subject to terms and conditions 
+# Copyright (c) 2005-2006 XenSource, Inc. All use and distribution of this
+# copyrighted material is governed by and subject to terms and conditions
 # as licensed by XenSource, Inc. All other rights reserved.
-# Xen, XenSource and XenEnterprise are either registered trademarks or 
+# Xen, XenSource and XenEnterprise are either registered trademarks or
 # trademarks of XenSource Inc. in the United States and/or other countries.
 
 ###
@@ -10,7 +10,7 @@
 #
 # written by Andrew Peace
 
-import xelogging
+from xcp import logger
 
 SKIP_SCREEN = -100
 EXIT = -101
@@ -19,7 +19,7 @@ RIGHT_FORWARDS =  1
 REPEAT_STEP =  0
 
 class Step:
-    def __init__(self, fn, args = [], predicates = []):
+    def __init__(self, fn, args=[], predicates=[]):
         self.fn = fn
         self.args = args
         self.predicates = predicates
@@ -29,13 +29,13 @@ class Step:
         assert False not in [callable(x) for x in self.predicates]
         assert callable(self.fn)
         if False not in [x(answers) for x in self.predicates]:
-            xelogging.log("Displaying screen %s" % self.fn)
+            logger.log("Displaying screen %s" % self.fn)
             return self.fn(answers, *self.args)
         else:
-            xelogging.log("Not displaying screen %s due to predicate return false." % self.fn)
+            logger.log("Not displaying screen %s due to predicate return false." % self.fn)
             return SKIP_SCREEN
 
-def runSequence(seq, answers, previous_delta = 1):
+def runSequence(seq, answers, previous_delta=1):
     assert type(seq) == list
     assert type(answers) == dict
     assert len(seq) > 0

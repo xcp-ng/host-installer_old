@@ -13,11 +13,11 @@
 #
 # by Andrew Peace
 
-# Test if started by init (or recursively by preinit)
+# Test if started by systemd (or recursively by preinit)
 if [ "$1" == "--" ] ; then
-    started_by_init=0
+    started_by_systemd=1
 else
-    started_by_init=1
+    started_by_systemd=0
 fi
 
 console=tty0
@@ -48,6 +48,7 @@ for arg in $args; do
       term=${arg#term=};;
     bash-shell | shell)
       bash_shell=1
+      interactive=0
       copy=0;;
     atexit=*)
       atexit=${arg#atexit=}
@@ -68,8 +69,9 @@ for arg in $args; do
   [ $copy -eq 1 ] && set -- "$@" "--$arg"
 done
 
-if [ $started_by_init -eq 1 ]; then
-  # started by init on the console
+if [ $started_by_systemd -eq 1 ]; then
+  # Started by systemd, without TTY. This script will invoke itself
+  # via agetty to connect one or more TTYs to it.
 
   # Run trigger followed by settle to wait for slow storage devices
   # to appear.
@@ -85,40 +87,42 @@ if [ $started_by_init -eq 1 ]; then
   # disable printk on the screen
   echo 1 > /proc/sys/kernel/printk
 
-  # force TERM if on a serial console (Xen defeats init's attempt to do this)
-  case "$console" in hvc*|ttyS*) export TERM=$term;; esac
+  for arg in $args; do
+    case "$arg" in
+      console=*)
+        c=${arg#console=}
+        if [ $c == $console -o $interactive -eq 1 ]; then
+          b=9600
+          t=linux
+          case "$c" in
+            hvc*|ttyS*)
+            xencon=`expr "$(xen_commandline)" : '.*\(com.=[^ ]*\)'`
+            co=`expr "$c" : '\(ttyS.*\),'`
+            br=`expr "$xencon" : 'com[0-9]*=\([0-9]*\)'`
+            [ -n "$co" ] && c=$co
+            [ -n "$br" ] && b=$br
+            t=$term;;
+          esac
+          setsid /sbin/agetty -n -l $0 $c $b $t &
+        fi
+    esac
+  done
+
+else
+  # Here we have been invoked from agetty (a few lines above), or
+  # this script was manually invoked, presumably from a terminal.
+  # Either way, we have a valid TTY.
 
   if [ $bash_shell -eq 1 ]; then
     echo "Exiting this shell will run the installer:"
     echo " /opt/xensource/installer/init" "$@"
     echo "---"
     IFS="$OLDIFS" /bin/bash
-  elif [ $interactive -eq 1 ]; then
-    # start clones on all other consoles
-    for arg in $args; do
-      case "$arg" in
-        console=*)
-          c=${arg#console=}
-	  if [ $c != $console ]; then
-	    b=9600
-	    t=linux
-	    case "$c" in
-	      hvc*|ttyS*)
-		xencon=`expr "$(xen_commandline)" : '.*\(com.=[^ ]*\)'`
-		co=`expr "$c" : '\(ttyS.*\),'`
-		br=`expr "$xencon" : 'com.*=\([0-9]*\)'`
-		[ -n "$co" ] && c=$co
-		[ -n "$br" ] && b=$br
-		t=$term;;
-	    esac
-	    /sbin/agetty -n -l $0 /dev/$c $b $t &
-	  fi
-      esac
-    done
   fi
+
+  [ $atexit = reboot ] && extra_args=--reboot
+  /opt/xensource/installer/init "$@" $extra_args
+  [ $atexit = shell ] && IFS="$OLDIFS" /bin/bash
+  [ $atexit = poweroff ] && poweroff
 fi
 
-[ $atexit = reboot ] && extra_args=--reboot
-/opt/xensource/installer/init "$@" $extra_args
-[ $atexit = shell ] && IFS="$OLDIFS" /bin/bash
-[ $atexit = poweroff ] && poweroff
