@@ -1,7 +1,7 @@
-# Copyright (c) 2005-2006 XenSource, Inc. All use and distribution of this 
-# copyrighted material is governed by and subject to terms and conditions 
+# Copyright (c) 2005-2006 XenSource, Inc. All use and distribution of this
+# copyrighted material is governed by and subject to terms and conditions
 # as licensed by XenSource, Inc. All other rights reserved.
-# Xen, XenSource and XenEnterprise are either registered trademarks or 
+# Xen, XenSource and XenEnterprise are either registered trademarks or
 # trademarks of XenSource Inc. in the United States and/or other countries.
 
 ###
@@ -10,7 +10,7 @@
 #
 # written by Andrew Peace
 
-import tui.installer.screens 
+import tui.installer.screens
 import tui.progress
 import tui.repo
 import uicontroller
@@ -37,7 +37,7 @@ def need_networking(answers):
         return True
     if 'installation-to-overwrite' in answers:
         settings = answers['installation-to-overwrite'].readSettings()
-        return (settings['master'] != None)
+        return (settings['master'] is not None)
     return False
 
 def get_main_source_location_sequence():
@@ -69,7 +69,7 @@ def runMainSequence(results, ram_warning, vt_warning, suppress_extra_cd_dialog):
 
     def upgrade_but_no_settings_predicate(answers):
         return answers['install-type'] == constants.INSTALL_TYPE_REINSTALL and \
-            (not answers.has_key('installation-to-overwrite') or \
+            ('installation-to-overwrite' not in answers or \
                  not answers['installation-to-overwrite'].settingsAvailable())
 
     has_multiple_nics = lambda a: len(a['network-hardware'].keys()) > 1
@@ -78,11 +78,11 @@ def runMainSequence(results, ram_warning, vt_warning, suppress_extra_cd_dialog):
     is_clean_install_fn = lambda a: a['install-type'] == constants.INSTALL_TYPE_FRESH
 
     def requires_backup(answers):
-        return answers.has_key("installation-to-overwrite") and \
+        return "installation-to-overwrite" in answers and \
                upgrade.getUpgrader(answers['installation-to-overwrite']).requires_backup
 
     def optional_backup(answers):
-        return answers.has_key("installation-to-overwrite") and \
+        return "installation-to-overwrite" in answers and \
                upgrade.getUpgrader(answers['installation-to-overwrite']).optional_backup
 
     def requires_repartition(answers):
@@ -90,24 +90,24 @@ def runMainSequence(results, ram_warning, vt_warning, suppress_extra_cd_dialog):
            upgrade.getUpgrader(answers['installation-to-overwrite']).repartition
 
     def preserve_settings(answers):
-        return answers.has_key('preserve-settings') and \
+        return 'preserve-settings' in answers and \
                answers['preserve-settings']
     not_preserve_settings = lambda a: not preserve_settings(a)
 
     def preserve_timezone(answers):
         if not_preserve_settings(answers):
             return False
-        if not answers.has_key('installation-to-overwrite'):
+        if 'installation-to-overwrite' not in answers:
             return False
         settings = answers['installation-to-overwrite'].readSettings()
-        return settings.has_key('timezone') and not settings.has_key('request-timezone')
+        return 'timezone' in settings and 'request-timezone' not in settings
     not_preserve_timezone = lambda a: not preserve_timezone(a)
 
     def ha_enabled(answers):
         settings = {}
-        if answers.has_key('installation-to-overwrite'):
+        if 'installation-to-overwrite' in answers:
             settings = answers['installation-to-overwrite'].readSettings()
-        return settings.has_key('ha-armed') and settings['ha-armed']
+        return 'ha-armed' in settings and settings['ha-armed']
 
     def out_of_order_pool_upgrade_fn(answers):
         if 'installation-to-overwrite' not in answers:
@@ -136,7 +136,7 @@ def runMainSequence(results, ram_warning, vt_warning, suppress_extra_cd_dialog):
 
         return ret
 
-    if not results.has_key('install-type'):
+    if 'install-type' not in results:
         results['install-type'] = constants.INSTALL_TYPE_FRESH
         results['preserve-settings'] = False
 
@@ -148,7 +148,7 @@ def runMainSequence(results, ram_warning, vt_warning, suppress_extra_cd_dialog):
              predicates=[lambda _:(ram_warning or vt_warning)]),
         Step(uis.overwrite_warning,
              predicates=[only_unupgradeable_products]),
-        Step(uis.get_installation_type, 
+        Step(uis.get_installation_type,
              predicates=[lambda _:len(results['upgradeable-products']) > 0 or len(results['backups']) > 0]),
         Step(uis.upgrade_settings_warning,
              predicates=[upgrade_but_no_settings_predicate]),
@@ -187,8 +187,10 @@ def runMainSequence(results, ram_warning, vt_warning, suppress_extra_cd_dialog):
              predicates=[is_not_restore_fn, not_preserve_settings]),
         Step(uis.get_ntp_servers,
              predicates=[is_not_restore_fn, not_preserve_settings]),
+        Step(uis.set_time,
+             predicates=[is_not_restore_fn, not_preserve_settings]),
         Step(uis.confirm_installation),
-    ]
+        ]
     return uicontroller.runSequence(seq, results)
 
 def more_media_sequence(answers):

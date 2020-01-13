@@ -1,7 +1,7 @@
-# Copyright (c) 2005-2006 XenSource, Inc. All use and distribution of this 
-# copyrighted material is governed by and subject to terms and conditions 
+# Copyright (c) 2005-2006 XenSource, Inc. All use and distribution of this
+# copyrighted material is governed by and subject to terms and conditions
 # as licensed by XenSource, Inc. All other rights reserved.
-# Xen, XenSource and XenEnterprise are either registered trademarks or 
+# Xen, XenSource and XenEnterprise are either registered trademarks or
 # trademarks of XenSource Inc. in the United States and/or other countries.
 
 ###
@@ -20,13 +20,13 @@ import constants
 import version
 import re
 import stat
-import xelogging
 import repository
 from disktools import *
 import hardware
 import xcp
 import xcp.bootloader as bootloader
 from xcp.version import *
+from xcp import logger
 import xml.dom.minidom
 import simplejson as json
 
@@ -79,9 +79,9 @@ class ExistingInstallation:
 
             result = (len(missing_state_files) == 0)
             if not result:
-                xelogging.log('Upgradeability test failed:')
-                xelogging.log('  Firstboot:     '+', '.join(firstboot_files))
-                xelogging.log('  Missing state: '+', '.join(missing_state_files))
+                logger.log('Upgradeability test failed:')
+                logger.log('  Firstboot:     '+', '.join(firstboot_files))
+                logger.log('  Missing state: '+', '.join(missing_state_files))
         finally:
             self.unmount_state()
         return result
@@ -89,19 +89,19 @@ class ExistingInstallation:
     def settingsAvailable(self):
         try:
             self.readSettings()
-        except SettingsNotAvailable, text:
-            xelogging.log("Settings unavailable: %s" % text)
+        except SettingsNotAvailable as text:
+            logger.log("Settings unavailable: %s" % text)
             return False
-        except Exception, e:
-            xelogging.log("Settings unavailable: unhandled exception")
-            xelogging.log_exception(e)
+        except Exception as e:
+            logger.log("Settings unavailable: unhandled exception")
+            logger.logException(e)
             return False
         else:
             return True
 
     def _readSettings(self):
         """ Read settings from the installation, returns a results dictionary. """
-        
+
         results = { 'host-config': {} }
 
         self.mount_state()
@@ -115,9 +115,9 @@ class ExistingInstallation:
                 if '/usr/share/zoneinfo/' in tzfile:
                     _, tz = tzfile.split('/usr/share/zoneinfo/', 1)
             if not tz:
-                # No timezone found: 
+                # No timezone found:
                 # Supply a default and for interactive installs prompt the user.
-                xelogging.log('No timezone configuration found.')
+                logger.log('No timezone configuration found.')
                 results['request-timezone'] = True
                 tz = "Europe/London"
             results['timezone'] = tz
@@ -139,7 +139,7 @@ class ExistingInstallation:
                 results['manual-hostname'] = (True, line.strip())
                 fd.close()
 
-            if not results.has_key('manual-hostname'):
+            if 'manual-hostname' not in results:
                 results['manual-hostname'] = (False, None)
 
             # nameservers:
@@ -161,13 +161,16 @@ class ExistingInstallation:
                 results['manual-nameservers'] = (True, ns)
 
             # ntp servers:
-            fd = open(self.join_state_path('etc/ntp.conf'), 'r')
+            if os.path.exists(self.join_state_path('etc/chrony.conf')):
+                fd = open(self.join_state_path('etc/chrony.conf'), 'r')
+            else:
+                fd = open(self.join_state_path('etc/ntp.conf'), 'r')
             lines = fd.readlines()
             fd.close()
             ntps = []
             for line in lines:
                 if line.startswith("server "):
-                    ntps.append(line[7:].strip())
+                    ntps.append(line[7:].split()[0].strip())
             results['ntp-servers'] = ntps
 
             # keyboard:
@@ -184,10 +187,10 @@ class ExistingInstallation:
                 results['keymap'] = keyboard_dict['KEYTABLE']
             # Do not error here if no keymap configuration is found.
             # This enables upgrade to still carry state on hosts without
-            # keymap configured: 
+            # keymap configured:
             # A default keymap is assigned in the backend of this installer.
-            if not results.has_key('keymap'):
-                xelogging.log('No existing keymap configuration found.')
+            if 'keymap' not in results:
+                logger.log('No existing keymap configuration found.')
 
             # root password:
             fd = open(self.join_state_path('etc/passwd'), 'r')
@@ -212,7 +215,7 @@ class ExistingInstallation:
                     pass
 
             if not root_pwd:
-                raise SettingsNotAvailable, "no root password found"
+                raise SettingsNotAvailable("no root password found")
             results['root-password'] = ('pwdhash', root_pwd)
 
             # don't care about this too much.
@@ -226,15 +229,15 @@ class ExistingInstallation:
             mgmt_iface = self.getInventoryValue('MANAGEMENT_INTERFACE')
 
             if not mgmt_iface:
-                xelogging.log('No existing management interface found.')
+                logger.log('No existing management interface found.')
             elif os.path.exists(self.join_state_path(constants.NETWORK_DB)):
-                xelogging.log('Checking %s for management interface configuration' % constants.NETWORKD_DB)
+                logger.log('Checking %s for management interface configuration' % constants.NETWORKD_DB)
 
                 def fetchIfaceInfoFromNetworkdbAsDict(bridge, iface=None):
                     args = ['chroot', self.state_fs.mount_point, '/'+constants.NETWORKD_DB, '-bridge', bridge]
                     if iface:
                         args.extend(['-iface', iface])
-                    rv, out = util.runCmd2(args, with_stdout = True)
+                    rv, out = util.runCmd2(args, with_stdout=True)
                     d = {}
                     for line in (x.strip() for x in out.split('\n') if len(x.strip())):
                         for key_value in line.split(" "):
@@ -279,7 +282,7 @@ class ExistingInstallation:
                     results['net-admin-configuration'].addIPv6(NetInterface.DHCP)
                 elif protov6 == 'autoconf':
                     results['net-admin-configuration'].addIPv6(NetInterface.Autoconf)
-                    
+
             repo_list = []
             if os.path.exists(self.join_state_path(constants.INSTALLED_REPOS_DIR)):
                 try:
@@ -295,9 +298,9 @@ class ExistingInstallation:
                             repo_name = repo.readline().strip()
                             repo.close()
                             repo_list.append((repo_id, repo_name, (repo_id != constants.MAIN_REPOSITORY_NAME)))
-                except Exception, e:
-                    xelogging.log('Scan for driver disks failed:')
-                    xelogging.log_exception(e)
+                except Exception as e:
+                    logger.log('Scan for driver disks failed:')
+                    logger.logException(e)
 
             results['repo-list'] = repo_list
 
@@ -323,7 +326,7 @@ class ExistingInstallation:
                 elif network_backend in [constants.NETWORK_BACKEND_VSWITCH, constants.NETWORK_BACKEND_VSWITCH_ALT]:
                     results['network-backend'] = constants.NETWORK_BACKEND_VSWITCH
                 else:
-                    raise SettingsNotAvailable, "unknown network backend %s" % network_backend
+                    raise SettingsNotAvailable("unknown network backend %s" % network_backend)
             except:
                 pass
 
@@ -350,9 +353,16 @@ class ExistingInstallation:
             boot_config = bootloader.Bootloader.loadExisting(self.boot_fs_mount)
 
             # Serial console
-            if boot_config.serial:
-                results['serial-console'] = hardware.SerialPort(boot_config.serial['port'],
-                                                                baud = str(boot_config.serial['baud']))
+            try:
+                xen_args = boot_config.menu['xe-serial'].getHypervisorArgs()
+                com = [i for i in xen_args if re.match('com[0-9]+=.*', i)]
+                results['serial-console'] = hardware.SerialPort.from_string(com[0])
+            except Exception:
+                logger.log("Could not parse serial settings")
+
+                if boot_config.serial:
+                    results['serial-console'] = hardware.SerialPort(boot_config.serial['port'],
+                                                                    baud=str(boot_config.serial['baud']))
             results['bootloader-location'] = boot_config.location
             if boot_config.default != 'upgrade':
                 results['boot-serial'] = (boot_config.default == 'xe-serial')
@@ -374,7 +384,7 @@ class ExistingInstallation:
 
         return results
 
-    def mount_boot(self, ro = True):
+    def mount_boot(self, ro=True):
         opts = None
         if ro:
             opts = ['ro']
@@ -404,11 +414,11 @@ class ExistingRetailInstallation(ExistingInstallation):
     def __repr__(self):
         return "<ExistingRetailInstallation: %s on %s>" % (str(self), self.root_device)
 
-    def mount_root(self, ro = True, boot_device = None):
+    def mount_root(self, ro=True, boot_device=None):
         opts = None
         if ro:
             opts = ['ro']
-        self.root_fs = util.TempMount(self.root_device, 'root', opts, 'ext3', boot_device = boot_device)
+        self.root_fs = util.TempMount(self.root_device, 'root', opts, 'ext3', boot_device=boot_device)
 
     def unmount_root(self):
         if self.root_fs:
@@ -417,8 +427,8 @@ class ExistingRetailInstallation(ExistingInstallation):
 
     # Because EFI boot stores the bootloader configuration on the ESP, mount
     # it at its usual location if necessary so that the configuration is found.
-    def mount_boot(self, ro = True):
-        self.mount_root(ro = ro, boot_device = self.boot_device)
+    def mount_boot(self, ro=True):
+        self.mount_root(ro=ro, boot_device=self.boot_device)
         self.boot_fs_mount = self.root_fs.mount_point
 
     def unmount_boot(self):
@@ -430,7 +440,7 @@ class ExistingRetailInstallation(ExistingInstallation):
         try:
             self.inventory = util.readKeyValueFile(os.path.join(self.root_fs.mount_point,
                                                                 constants.INVENTORY_FILE),
-                                                   strip_quotes = True)
+                                                   strip_quotes=True)
             self.build = self.inventory['BUILD_NUMBER']
             self.version = Version.from_string("%s-%s" % (self.inventory['PLATFORM_VERSION'],
                                                           self.build))
@@ -462,7 +472,7 @@ class ExistingRetailInstallation(ExistingInstallation):
 class XenServerBackup:
     def __init__(self, part, mnt):
         self.partition = part
-        self.inventory = util.readKeyValueFile(os.path.join(mnt, constants.INVENTORY_FILE), strip_quotes = True)
+        self.inventory = util.readKeyValueFile(os.path.join(mnt, constants.INVENTORY_FILE), strip_quotes=True)
         self.build = self.inventory['BUILD_NUMBER']
         self.version = Version.from_string("%s-%s" % (self.inventory['PLATFORM_VERSION'],
                                                       self.build))
@@ -540,27 +550,27 @@ def findXenSourceProducts():
         try:
             if root[0] == diskutil.INSTALL_RETAIL:
                 inst = ExistingRetailInstallation(disk, boot[1], root[1], state[1], storage)
-        except Exception, e:
-            xelogging.log("A problem occurred whilst scanning for existing installations:")
-            xelogging.log_exception(e)
-            xelogging.log("This is not fatal.  Continuing anyway.")
+        except Exception as e:
+            logger.log("A problem occurred whilst scanning for existing installations:")
+            logger.logException(e)
+            logger.log("This is not fatal.  Continuing anyway.")
 
         if inst:
-            xelogging.log("Found an installation: %s on %s" % (str(inst), disk))
+            logger.log("Found an installation: %s on %s" % (str(inst), disk))
             installs.append(inst)
 
     return installs
 
 def readInventoryFile(filename):
-    return util.readKeyValueFile(filename, strip_quotes = True)
+    return util.readKeyValueFile(filename, strip_quotes=True)
 
 def find_installed_products():
     try:
         installed_products = findXenSourceProducts()
-    except Exception, e:
-        xelogging.log("A problem occurred whilst scanning for existing installations:")
-        xelogging.log_exception(e)
-        xelogging.log("This is not fatal.  Continuing anyway.")
+    except Exception as e:
+        logger.log("A problem occurred whilst scanning for existing installations:")
+        logger.logException(e)
+        logger.log("This is not fatal.  Continuing anyway.")
         installed_products = []
     return installed_products
-            
+

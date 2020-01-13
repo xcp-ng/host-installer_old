@@ -1,5 +1,5 @@
-# Copyright (c) 2008 Citrix Inc. All use and distribution of this 
-# copyrighted material is governed by and subject to terms and conditions 
+# Copyright (c) 2008 Citrix Inc. All use and distribution of this
+# copyrighted material is governed by and subject to terms and conditions
 # as licensed by Citrix Inc. All other rights reserved.
 
 ###
@@ -33,7 +33,7 @@ class NetInterface:
 
     def __init__(self, mode, hwaddr, ipaddr=None, netmask=None, gateway=None,
                  dns=None, domain=None, vlan=None):
-        assert mode == None or mode == self.Static or mode == self.DHCP
+        assert mode is None or mode == self.Static or mode == self.DHCP
         if ipaddr == '':
             ipaddr = None
         if netmask == '':
@@ -95,7 +95,7 @@ class NetInterface:
 
         return "<NetInterface: %s%s ipv4:%s ipv6:%s>" % (hw, vlan, ipv4, ipv6)
 
-    def get(self, name, default = None):
+    def get(self, name, default=None):
         retval = default
         if hasattr(self, name):
             attr = getattr(self, name)
@@ -107,7 +107,7 @@ class NetInterface:
         return ("%s.%d" % (iface, self.vlan)) if self.vlan else iface
 
     def addIPv6(self, modev6, ipv6addr=None, ipv6gw=None):
-        assert modev6 == None or modev6 == self.Static or modev6 == self.DHCP or modev6 == self.Autoconf
+        assert modev6 is None or modev6 == self.Static or modev6 == self.DHCP or modev6 == self.Autoconf
         if ipv6addr == '':
             ipv6addr = None
         if ipv6gw == '':
@@ -135,7 +135,7 @@ class NetInterface:
         return self.mode == self.Static
 
     def isVlan(self):
-        return self.vlan != None
+        return self.vlan is not None
 
     def getBroadcast(self):
         bcast = None
@@ -146,12 +146,12 @@ class NetInterface:
         return bcast
 
     def writeDebStyleInterface(self, iface, f):
-        """ Write a Debian-style configuration entry for this interface to 
+        """ Write a Debian-style configuration entry for this interface to
         file object f using interface name iface. """
 
         # Debian style interfaces are only used for the installer; dom0 only uses CentOS style
         # IPv6 is only enabled through answerfiles and so is not supported here.
-        assert self.modev6 == None
+        assert self.modev6 is None
         assert self.mode
         iface_vlan = self.getInterfaceName(iface)
 
@@ -162,7 +162,7 @@ class NetInterface:
             bcast = self.getBroadcast()
             f.write("iface %s inet static\n" % iface_vlan)
             f.write("   address %s\n" % self.ipaddr)
-            if bcast != None:
+            if bcast is not None:
                 f.write("   broadcast %s\n" % bcast)
             f.write("   netmask %s\n" % self.netmask)
             if self.gateway:
@@ -172,7 +172,7 @@ class NetInterface:
         """ Write a RedHat-style configuration entry for this interface to
         file object f using interface name iface. """
 
-        assert self.modev6 == None
+        assert self.modev6 is None
         assert self.mode
         iface_vlan = self.getInterfaceName(iface)
 
@@ -187,7 +187,7 @@ class NetInterface:
             bcast = self.getBroadcast()
             f.write("BOOTPROTO=none\n")
             f.write("IPADDR=%s\n" % self.ipaddr)
-            if bcast != None:
+            if bcast is not None:
                 f.write("BROADCAST=%s\n" % bcast)
             f.write("NETMASK=%s\n" % self.netmask)
             if self.gateway:
@@ -220,12 +220,12 @@ class NetInterface:
     @staticmethod
     def loadFromIfcfg(filename):
         def valOrNone(d, k):
-            return d.has_key(k) and d[k] or None
+            return k in d and d[k] or None
 
         conf = util.readKeyValueFile(filename)
         mode = None
-        if conf.has_key('BOOTPROTO'):
-            if conf['BOOTPROTO'] == 'static' or conf.has_key('IPADDR'):
+        if 'BOOTPROTO' in conf:
+            if conf['BOOTPROTO'] == 'static' or 'IPADDR' in conf:
                 mode = NetInterface.Static
             elif conf['BOOTPROTO'] == 'dhcp':
                 mode = NetInterface.DHCP
@@ -237,17 +237,17 @@ class NetInterface:
             hwaddr = netutil.getHWAddr(conf['DEVICE'])
         dns = None
         n = 1
-        while conf.has_key('DNS%d' % n):
+        while 'DNS%d' % n in conf:
             if not dns: dns = []
             dns.append(conf['DNS%d' % n])
             n += 1
 
         modev6 = None
-        if conf.has_key('DHCPV6C'):
+        if 'DHCPV6C' in conf:
             modev6 = NetInterface.DHCP
-        elif conf.has_key('IPV6_AUTOCONF'):
+        elif 'IPV6_AUTOCONF' in conf:
             modev6 = NetInterface.Autoconf
-        elif conf.has_key('IPV6INIT'):
+        elif 'IPV6INIT' in conf:
             modev6 = NetInterface.Static
 
         ni = NetInterface(mode, hwaddr, valOrNone(conf, 'IPADDR'), valOrNone(conf, 'NETMASK'),
@@ -303,7 +303,7 @@ class NetInterface:
                 gatewayv6 = getTextOrNone(pif.getElementsByTagName('IPv6_gateway')[0].childNodes)
             except:
                 gatewayv6 = None
-    
+
         nic = NetInterface(mode, hwaddr, ipaddr, netmask, gateway, dns, domain)
         nic.addIPv6(modev6, ipv6addr, gatewayv6)
         return nic

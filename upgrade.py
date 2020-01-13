@@ -1,7 +1,7 @@
-# Copyright (c) 2005-2006 XenSource, Inc. All use and distribution of this 
-# copyrighted material is governed by and subject to terms and conditions 
+# Copyright (c) 2005-2006 XenSource, Inc. All use and distribution of this
+# copyrighted material is governed by and subject to terms and conditions
 # as licensed by XenSource, Inc. All other rights reserved.
-# Xen, XenSource and XenEnterprise are either registered trademarks or 
+# Xen, XenSource and XenEnterprise are either registered trademarks or
 # trademarks of XenSource Inc. in the United States and/or other countries.
 
 ###
@@ -20,11 +20,11 @@ import shutil
 import diskutil
 import product
 from xcp.version import *
+from xcp import logger
 from disktools import *
 from netinterface import *
 import util
 import constants
-import xelogging
 import version
 import netutil
 
@@ -127,12 +127,12 @@ class Upgrader(object):
             if st.st_uid != new_uid or st.st_gid != new_gid:
                 os.lchown('%s/%s' % (dst_root, dst_path), new_uid, new_gid)
 
-        def restore_file(src_base, f, d = None):
+        def restore_file(src_base, f, d=None):
             if not d: d = f
             src = os.path.join(src_base, f)
             dst = os.path.join(mounts['root'], d)
             if os.path.exists(src):
-                xelogging.log("Restoring /%s" % f)
+                logger.log("Restoring /%s" % f)
                 util.assertDir(os.path.dirname(dst))
                 if os.path.isdir(src):
                     util.runCmd2(['cp', '-a', src, os.path.dirname(dst)])
@@ -148,15 +148,15 @@ class Upgrader(object):
                         dst_path = os.path.join(abs_d, src_path[len(abs_f) + 1:])
                         copy_ownership(src_base, src_path, mounts['root'], dst_path)
             else:
-                xelogging.log("WARNING: /%s did not exist in the backup image." % f)
+                logger.log("WARNING: /%s did not exist in the backup image." % f)
 
         backup_volume = partitionDevice(target_disk, backup_partnum)
-        tds = util.TempMount(backup_volume, 'upgrade-src-', options = ['ro'])
+        tds = util.TempMount(backup_volume, 'upgrade-src-', options=['ro'])
         try:
             self.buildRestoreList()
             init_id_maps(tds.mount_point, mounts['root'])
 
-            xelogging.log("Restoring preserved files")
+            logger.log("Restoring preserved files")
             for f in self.restore_list:
                 if isinstance(f, str):
                     restore_file(tds.mount_point, f)
@@ -186,14 +186,11 @@ class ThirdGenUpgrader(Upgrader):
 
     def __init__(self, source):
         Upgrader.__init__(self, source)
-        primary_fs = util.TempMount(self.source.root_device, 'primary-', options = ['ro'])
+        primary_fs = util.TempMount(self.source.root_device, 'primary-', options=['ro'])
         safe2upgrade_path = os.path.join(primary_fs.mount_point, constants.SAFE_2_UPGRADE)
         default_storage_conf_path = os.path.join(primary_fs.mount_point, "etc/firstboot.d/data/default-storage.conf")
 
-        if os.path.isfile(safe2upgrade_path):
-            self.safe2upgrade = True
-        else:
-            self.safe2upgrade = False
+        self.safe2upgrade = os.path.isfile(safe2upgrade_path)
         self.vgs_output = None
 
         self.storage_type = None
@@ -226,33 +223,33 @@ class ThirdGenUpgrader(Upgrader):
 
                 # Rename old dom0 and Boot (if any) partitions (10 and 11 are temporary number which let us create
                 # dom0 and Boot partitions using the same numbers)
-                tool.renamePartition(srcNumber = primary_partnum, destNumber = 10, overwrite = False)
+                tool.renamePartition(srcNumber=primary_partnum, destNumber=10, overwrite=False)
                 boot_part = tool.getPartition(boot_partnum)
                 if boot_part:
-                    tool.renamePartition(srcNumber = boot_partnum, destNumber = 11, overwrite = False)
+                    tool.renamePartition(srcNumber=boot_partnum, destNumber=11, overwrite=False)
                 # Create new bigger dom0 partition
-                tool.createPartition(tool.ID_LINUX, sizeBytes = constants.root_size * 2**20, number = primary_partnum)
+                tool.createPartition(tool.ID_LINUX, sizeBytes=constants.root_size * 2**20, number=primary_partnum)
                 # Create Boot partition
                 if target_boot_mode == constants.TARGET_BOOT_MODE_UEFI:
-                    tool.createPartition(tool.ID_EFI_BOOT, sizeBytes = constants.boot_size * 2**20, number = boot_partnum)
+                    tool.createPartition(tool.ID_EFI_BOOT, sizeBytes=constants.boot_size * 2**20, number=boot_partnum)
                 else:
-                    tool.createPartition(tool.ID_BIOS_BOOT, sizeBytes = constants.boot_size * 2**20, number = boot_partnum)
+                    tool.createPartition(tool.ID_BIOS_BOOT, sizeBytes=constants.boot_size * 2**20, number=boot_partnum)
                 # Create swap partition
-                tool.createPartition(tool.ID_LINUX_SWAP, sizeBytes = constants.swap_size * 2**20, number = swap_partnum)
+                tool.createPartition(tool.ID_LINUX_SWAP, sizeBytes=constants.swap_size * 2**20, number=swap_partnum)
                 # Create storage LVM partition
                 if storage_partnum > 0 and self.vgs_output:
-                    tool.createPartition(tool.ID_LINUX_LVM, number = storage_partnum)
+                    tool.createPartition(tool.ID_LINUX_LVM, number=storage_partnum)
                 # Create logs partition using the old dom0 + Boot (if any) partitions
                 tool.deletePartition(10)
                 if boot_part:
                     tool.deletePartition(11)
-                tool.createPartition(tool.ID_LINUX, sizeBytes = constants.logs_size * 2**20, startBytes = 1024*1024, number = logs_partnum)
+                tool.createPartition(tool.ID_LINUX, sizeBytes=constants.logs_size * 2**20, startBytes=1024*1024, number=logs_partnum)
 
-                tool.commit(log = True)
+                tool.commit(log=True)
 
                 if storage_partnum > 0 and self.vgs_output:
                     storage_part = partitionDevice(primary_disk, storage_partnum)
-                    rc, out = util.runCmd2(['pvs', '-o', 'pv_name,vg_name', '--noheadings'], with_stdout = True)
+                    rc, out = util.runCmd2(['pvs', '-o', 'pv_name,vg_name', '--noheadings'], with_stdout=True)
                     vgs_list = out.strip().splitlines()
                     primary_dev = getMajMin(primary_disk)
                     vgs_output_wrong = [i for i in vgs_list if diskutil.parentdev_from_devpath(i.strip().split()[0]) == primary_dev]
@@ -298,7 +295,7 @@ class ThirdGenUpgrader(Upgrader):
         if self.safe2upgrade and logs_partition is None and partition_table_type == constants.PARTITION_GPT:
             if storage_partnum > 0:
                 # Get current Volume Group
-                rc, out = util.runCmd2(['pvs', '-o', 'pv_name,vg_name', '--noheadings'], with_stdout = True)
+                rc, out = util.runCmd2(['pvs', '-o', 'pv_name,vg_name', '--noheadings'], with_stdout=True)
                 vgs_list = out.strip().splitlines()
                 target_dev = getMajMin(target_disk)
                 self.vgs_output = [i for i in vgs_list if diskutil.parentdev_from_devpath(i.strip().split()[0]) == target_dev]
@@ -314,9 +311,9 @@ class ThirdGenUpgrader(Upgrader):
                 # Delete LVM partition
                 tool.deletePartition(storage_partnum)
             # Resize backup partition
-            tool.resizePartition(number = backup_partnum, sizeBytes = constants.backup_size * 2**20)
+            tool.resizePartition(number=backup_partnum, sizeBytes=constants.backup_size * 2**20)
             # Write partition table
-            tool.commit(log = True)
+            tool.commit(log=True)
 
         # format the backup partition:
         backup_partition = partitionDevice(target_disk, backup_partnum)
@@ -327,7 +324,7 @@ class ThirdGenUpgrader(Upgrader):
         progress_callback(10)
 
         # copy the files across:
-        primary_fs = util.TempMount(self.source.root_device, 'primary-', options = ['ro'], boot_device = boot_device)
+        primary_fs = util.TempMount(self.source.root_device, 'primary-', options=['ro'], boot_device=boot_device)
         try:
             backup_fs = util.TempMount(backup_partition, 'backup-')
             try:
@@ -344,15 +341,15 @@ class ThirdGenUpgrader(Upgrader):
                               [ os.path.join(primary_fs.mount_point, x) ] + \
                               ['%s/' % backup_fs.mount_point]
                         if util.runCmd2(cmd) != 0:
-                            raise RuntimeError, "Backup of %s directory failed" % x
+                            raise RuntimeError("Backup of %s directory failed" % x)
                     val += 90 / len(top_dirs)
                     progress_callback(val)
 
                 if partition_table_type == constants.PARTITION_GPT:
                     # save the GPT table
-                    rc, err = util.runCmd2(["sgdisk", "-b", os.path.join(backup_fs.mount_point, '.xen-gpt.bin'), target_disk], with_stderr = True)
+                    rc, err = util.runCmd2(["sgdisk", "-b", os.path.join(backup_fs.mount_point, '.xen-gpt.bin'), target_disk], with_stderr=True)
                     if rc != 0:
-                        raise RuntimeError, "Failed to save partition layout: %s" % err
+                        raise RuntimeError("Failed to save partition layout: %s" % err)
             finally:
                 # replace rolling pool upgrade bootloader config
                 def replace_config(config_file, destination):
@@ -379,7 +376,7 @@ class ThirdGenUpgrader(Upgrader):
             installID = self.source.getInventoryValue("INSTALLATION_UUID")
             controlID = self.source.getInventoryValue("CONTROL_DOMAIN_UUID")
         except KeyError:
-            raise RuntimeError, "Required information (INSTALLATION_UUID, CONTROL_DOMAIN_UUID) was missing from your xensource-inventory file.  Aborting installation; please replace these keys and try again."
+            raise RuntimeError("Required information (INSTALLATION_UUID, CONTROL_DOMAIN_UUID) was missing from your xensource-inventory file.  Aborting installation; please replace these keys and try again.")
 
         return installID, controlID
 
@@ -401,7 +398,7 @@ class ThirdGenUpgrader(Upgrader):
         self.restore_list.append({'src': 'etc/xensource-inventory', 'dst': 'var/tmp/.previousInventory'})
 
         # CP-1508: preserve AD config
-        self.restore_list += [ 'etc/resolv.conf', 'etc/nsswitch.conf', 'etc/krb5.conf', 'etc/krb5.keytab', 'etc/pam.d/sshd' ]
+        self.restore_list += ['etc/resolv.conf', 'etc/krb5.conf', 'etc/krb5.keytab']
         self.restore_list.append({'dir': 'var/lib/likewise'})
 
         # CP-12576: Integrate automatic upgrade tool from Likewise 5.4 to PBIS 8
@@ -474,28 +471,12 @@ class ThirdGenUpgrader(Upgrader):
             nfd.close()
             netutil.disable_ipv6_module(mounts["root"])
 
-        # handle the conversion of HP Gen6 controllers from cciss to scsi
+        # handle the conversion of devices from aacraid to smartpqi
         primary_disk = self.source.getInventoryValue("PRIMARY_DISK")
         target_link = diskutil.idFromPartition(target_disk) or target_disk
-        if 'cciss' in primary_disk and 'scsi' in target_link:
-            util.runCmd2(['sed', '-i', '-e', "s#%s#%s#g" % (primary_disk, target_link),
-                          os.path.join(mounts['root'], constants.FIRSTBOOT_DATA_DIR, 'default-storage.conf')])
-            util.runCmd2(['sed', '-i', '-e', "s#%s#%s#g" % (primary_disk, target_link),
-                          os.path.join(mounts['root'], constants.XAPI_DB)])
-
-        # handle the conversion of RAID devices from /dev/md_* to /dev/disk/by-id/md-uuid-*
-        if primary_disk.startswith('/dev/md_') and target_link.startswith('/dev/disk/by-id/md-uuid-'):
-            for i in (os.path.join(constants.FIRSTBOOT_DATA_DIR, 'default-storage.conf'),
-                      constants.XAPI_DB):
-                # First convert partitions from *pN to *-partN
-                util.runCmd2(['sed', '-i', '-e', "s#\(%s\)p\([[:digit:]]\+\)#\\1-part\\2#g" % primary_disk,
-                              os.path.join(mounts['root'], i)])
-                # Then conert from /dev/md_* to /dev/disk/by-id/md-uuid-*
-                util.runCmd2(['sed', '-i', '-e', "s#%s#%s#g" % (primary_disk, target_link),
-                              os.path.join(mounts['root'], i)])
-
-        # handle the conversion of devices from scsi-* links to ata-* links
-        if primary_disk.startswith('/dev/disk/by-id/scsi-') and target_link.startswith('/dev/disk/by-id/ata-'):
+        if primary_disk.startswith('/dev/disk/by-id/scsi-') and \
+                target_link.startswith('/dev/disk/by-id/scsi-') and \
+                primary_disk != target_link:
             for i in (os.path.join(constants.FIRSTBOOT_DATA_DIR, 'default-storage.conf'),
                       constants.XAPI_DB):
                 util.runCmd2(['sed', '-i', '-e', "s#%s#%s#g" % (primary_disk, target_link),
@@ -520,7 +501,7 @@ class UpgraderList(list):
         for x in self:
             if x.upgrades(product, version, variant):
                 return x
-        raise KeyError, "No upgrader found for %s" % version
+        raise KeyError("No upgrader found for %s" % version)
 
     def hasUpgrader(self, product, version, variant):
         for x in self:

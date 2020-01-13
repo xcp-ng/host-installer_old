@@ -20,12 +20,12 @@ import util
 import netutil
 from util import dev_null
 import tui
-import xelogging
 from disktools import *
 import time
 import snackutil
 from snack import *
 import fcoeutil
+from xcp import logger
 
 def select_fcoe_ifaces(answers):
     """ Display a screen that displays all network interfaces that are
@@ -33,9 +33,9 @@ def select_fcoe_ifaces(answers):
     """
 
     conf = netutil.scanConfiguration()
-    fcoe_ifaces = fcoeutil.get_dcb_capable_ifaces(True)
+    netifs = fcoeutil.get_fcoe_capable_ifaces(True)
 
-    if len(fcoe_ifaces) == 0:
+    if not netifs:
         button = ButtonChoiceWindow(
             tui.screen,
             "FCoE Interfaces",
@@ -45,7 +45,6 @@ def select_fcoe_ifaces(answers):
 
         return
 
-    netifs = fcoe_ifaces.keys()
     netifs.sort(lambda l, r: int(l[3:]) - int(r[3:]))
 
     def iface_details(context):
@@ -62,34 +61,24 @@ def select_fcoe_ifaces(answers):
         tui.screen.popHelpLine()
         return True
 
-    # Map between soft/off and soft/hard (depending on interface property)
-    def dcb_state_label(iface, state):
-        if state:
-            return '[soft]'
-        if not fcoe_ifaces[iface]:
-            return '[hard]'
-        return '      '
-
     if 'fcoe-interfaces' not in answers:
-        answers['fcoe-interfaces'] = {}
+        answers['fcoe-interfaces'] = []
 
     entries = {}
     for ne in netifs:
-        state = dcb_state_label(ne, answers['fcoe-interfaces'].get(ne, fcoe_ifaces[ne]))
-        entry = "%s %s" % (ne, state)
-        entries[ne] = entry
+        entries[ne] = ne
 
     text = TextboxReflowed(54, "Select one or more interfaces to setup for FCoE.")
-    buttons = ButtonBar(tui.screen, [('Ok', 'ok'), ('DCB', 'dcb'), ('Back', 'back')])
+    buttons = ButtonBar(tui.screen, [('Ok', 'ok'), ('Back', 'back')])
     scroll, _ = snackutil.scrollHeight(3, len(entries.keys()))
     cbt = CheckboxTree(3, scroll)
     for iface in netifs:
         cbt.append(entries[iface], iface, iface in answers['fcoe-interfaces'])
 
     gf = GridFormHelp(tui.screen, 'FCoE Interfaces', 'fcoeiface:info', 1, 3)
-    gf.add(text, 0, 0, padding = (0, 0, 0, 1))
-    gf.add(cbt, 0, 1, padding = (0, 0, 0, 1))
-    gf.add(buttons, 0, 2, growx = 1)
+    gf.add(text, 0, 0, padding=(0, 0, 0, 1))
+    gf.add(cbt, 0, 1, padding=(0, 0, 0, 1))
+    gf.add(buttons, 0, 2, growx=1)
     gf.addHotKey('F5')
 
     tui.update_help_line([None, "<F5> more info"])
@@ -99,11 +88,6 @@ def select_fcoe_ifaces(answers):
         rc = gf.run()
         if rc == 'F5':
             iface_details(cbt.getCurrent())
-        elif buttons.buttonPressed(rc) == 'dcb':
-            ne = cbt.getCurrent()
-            new = dcb_state_label(ne, not entries[ne].endswith('[soft]'))
-            entries[ne] = "%s %s" % (ne, new)
-            cbt.setEntry(ne, entries[ne])
         else:
             loop = False
     tui.screen.popWindow()
@@ -114,16 +98,15 @@ def select_fcoe_ifaces(answers):
     if button == 'back':
         return
 
-    r = dict(map(lambda (k): (k, entries[k].endswith('[soft]')), cbt.getSelection()))
-    answers['fcoe-interfaces'] = r
-    xelogging.log("Selected fcoe interfaces %s" % str(r))
+    answers['fcoe-interfaces'] = cbt.getSelection()
+    logger.log("Selected fcoe interfaces %s" % str(answers['fcoe-interfaces']))
 
     tui.update_help_line([' ', ' '])
 
     # Bring up FCoE devices
     tui.progress.showMessageDialog("Please wait", "Discovering devices...")
     result = fcoeutil.start_fcoe(answers['fcoe-interfaces'])
-    xelogging.log("fcoe result %s" % str(result))
+    logger.log("fcoe result %s" % str(result))
     tui.progress.clearModelessDialog()
 
     fail = {k: v for k, v in result.iteritems() if v != 'OK'}
@@ -131,13 +114,13 @@ def select_fcoe_ifaces(answers):
         # Report any errors
         err_text = '\n'.join(map(lambda (x, y): "%s %s" % (x, y), fail.iteritems()))
         text = TextboxReflowed(60, "The following errors occured while discovering FCoE disks.")
-        errs = Textbox(30, 6, err_text, scroll = len(fail.keys()) > 6)
+        errs = Textbox(30, 6, err_text, scroll=len(fail.keys()) > 6)
         buttons = ButtonBar(tui.screen, [('Ok', 'ok')])
 
         gf = GridFormHelp(tui.screen, 'Discovery Failure', 'fipvlanfail', 1, 3)
-        gf.add(text, 0, 0, padding = (0, 0, 0, 1))
-        gf.add(errs, 0, 1, padding = (0, 0, 0, 1))
-        gf.add(buttons, 0, 2, growx = 1)
+        gf.add(text, 0, 0, padding=(0, 0, 0, 1))
+        gf.add(errs, 0, 1, padding=(0, 0, 0, 1))
+        gf.add(buttons, 0, 2, growx=1)
         gf.run()
         tui.screen.popWindow()
 
@@ -151,7 +134,7 @@ def select_fcoe_ifaces(answers):
                 luns[os.path.basename(lun['device'])] = {'Capacity': lun['capacity'], 'Description': lun['description'],
                                                          'Port': v2['Port Name'], 'VLAN': k}
 
-    xelogging.log("fcoe luns discovered %s" % str(luns))
+    logger.log("fcoe luns discovered %s" % str(luns))
     def disk_details(context):
         tui.update_help_line([' ', ' '])
         table = [("Name:", context)]

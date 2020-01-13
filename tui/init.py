@@ -1,7 +1,7 @@
-# Copyright (c) 2005-2006 XenSource, Inc. All use and distribution of this 
-# copyrighted material is governed by and subject to terms and conditions 
+# Copyright (c) 2005-2006 XenSource, Inc. All use and distribution of this
+# copyrighted material is governed by and subject to terms and conditions
 # as licensed by XenSource, Inc. All other rights reserved.
-# Xen, XenSource and XenEnterprise are either registered trademarks or 
+# Xen, XenSource and XenEnterprise are either registered trademarks or
 # trademarks of XenSource Inc. in the United States and/or other countries.
 
 ###
@@ -23,7 +23,6 @@ import tui.progress
 import tui.repo
 import repository
 import snackutil
-import xelogging
 
 def get_keymap():
     entries = generalui.getKeymaps()
@@ -33,12 +32,12 @@ def get_keymap():
         "Select Keymap",
         "Please select the keymap you would like to use:",
         entries,
-        ['Ok'], height = 8, scroll = 1, help = "keymap", timeout_ms = 500)
+        ['Ok'], height=8, scroll=1, help="keymap", timeout_ms=500)
 
     return entry
 
 def choose_operation(display_restore):
-    entries = [ 
+    entries = [
         (' * Install or upgrade %s' % BRAND_SERVER, init_constants.OPERATION_INSTALL),
         ]
 
@@ -51,7 +50,7 @@ def choose_operation(display_restore):
                                           entries,
                                           ['Ok', 'Load driver', 'Exit and reboot'], width=70)
 
-    if button == 'ok' or button == None:
+    if button == 'ok' or button is None:
         return entry
     elif button == 'load driver':
         return init_constants.OPERATION_LOAD_DRIVER
@@ -62,13 +61,13 @@ def driver_disk_sequence(answers, driver_repos):
     uic = uicontroller
     seq = [
         uic.Step(tui.repo.select_repo_source,
-                 args = ["Select Driver Source", "Please select where you would like to load the Supplemental Pack containing the driver from:",
+                 args=["Select Driver Source", "Please select where you would like to load the Supplemental Pack containing the driver from:",
                          False]),
         uic.Step(tui.network.requireNetworking,
-                 predicates = [lambda a: a['source-media'] != 'local']),
+                 predicates=[lambda a: a['source-media'] != 'local']),
         uic.Step(tui.repo.get_source_location,
-                 predicates = [lambda a: a['source-media'] != 'local'],
-                 args = [False, False]),
+                 predicates=[lambda a: a['source-media'] != 'local'],
+                 args=[False, False]),
         uic.Step(tui.repo.confirm_load_repo, args=['driver', driver_repos]),
         ]
     rc = uicontroller.runSequence(seq, answers)
@@ -82,7 +81,7 @@ def select_backup(backups):
     for b in backups:
         backup_partition, restore_disk = b
         entries.append(("%s, to be restored on %s" %
-                           (backup_partition[5:], restore_disk[5:]), 
+                           (backup_partition[5:], restore_disk[5:]),
                         b))
 
     b, e = ListboxChoiceWindow(

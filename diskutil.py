@@ -1,7 +1,7 @@
-# Copyright (c) 2005-2006 XenSource, Inc. All use and distribution of this 
-# copyrighted material is governed by and subject to terms and conditions 
+# Copyright (c) 2005-2006 XenSource, Inc. All use and distribution of this
+# copyrighted material is governed by and subject to terms and conditions
 # as licensed by XenSource, Inc. All other rights reserved.
-# Xen, XenSource and XenEnterprise are either registered trademarks or 
+# Xen, XenSource and XenEnterprise are either registered trademarks or
 # trademarks of XenSource Inc. in the United States and/or other countries.
 
 ###
@@ -12,6 +12,7 @@
 
 import re, sys
 import os.path
+import errno
 import constants
 import CDROM
 import fcntl
@@ -19,7 +20,6 @@ import glob
 import util
 import netutil
 from util import dev_null
-import xelogging
 import xcp.logger as logger
 from disktools import *
 import time
@@ -33,10 +33,7 @@ def mpath_cli_is_working():
     try:
         (rc,stdout) = util.runCmd2(["multipathd","-k"], with_stdout=True, inputtext="help")
         m=regex.search(stdout)
-        if m:
-            return True
-        else:
-            return False
+        return bool(m)
     except:
         return False
 
@@ -46,10 +43,10 @@ def wait_for_multipathd():
             return
         time.sleep(1)
     msg = "Unable to contact Multipathd daemon"
-    xelogging.log(msg)
+    logger.log(msg)
     raise Exception(msg)
 
-def mpath_part_scan(force = False):
+def mpath_part_scan(force=False):
     global use_mpath
 
     if not force and not use_mpath:
@@ -79,7 +76,7 @@ def mpath_enable():
 
     # Tell DM to create partition nodes for newly created mpath devices
     assert 0 == mpath_part_scan(True)
-    xelogging.log("created multipath device(s)");
+    logger.log("created multipath device(s)");
     use_mpath = True
 
 def mpath_disable():
@@ -94,7 +91,7 @@ ide_majors = [ 3, 22, 33, 34, 56, 57, 88, 89, 90, 91 ]
 disk_nodes  = [ (x, 0) for x in ide_majors ]
 disk_nodes += [ (x, 64) for x in ide_majors ]
 
-# sd* -> (sd-mod has majors 8, 65 ... 71, 128 ... 135: each device has eight minors, each 
+# sd* -> (sd-mod has majors 8, 65 ... 71, 128 ... 135: each device has eight minors, each
 # major has sixteen disks).
 # Extended minors are used for disk 257 and above and the major number wraps back to 8
 # thus disk 257 is major 8 minor 256, disk 258 is
@@ -146,17 +143,20 @@ def getDiskList():
         try:
             (major, minor, size, name) = l.split(" ")
             (major, minor, size) = (int(major), int(minor) % 256, int(size))
+            if hasDeviceMapperHolder("/dev/" + name.replace("!","/")):
+                # skip device that cannot be used
+                continue
+            if isDeviceMapperNode("/dev/" + name.replace("!","/")):
+                # dm-* devices get added later as mapper/* devices
+                continue
             if (major, minor) in disk_nodes:
                 if major == 202 and isRemovable("/dev/" + name): # Ignore PV CDROM devices
                     continue
-                if hasDeviceMapperHolder("/dev/" + name.replace("!","/")):
-                    # skip device that cannot be used
-                    continue
                 disks.append(name.replace("!", "/"))
-            # Handle Block Extended Major devices
-            if major == 259:
+            # Handle LOCAL/EXPERIMENTAL and Block Extended Major devices
+            if 240 <= major <= 254 or major == 259:
                 rc, out = util.runCmd2(['/bin/lsblk', '-d', '-n', '-o', 'TYPE', "/dev/" + name.replace("!","/")],
-                                       with_stdout = True)
+                                       with_stdout=True)
                 if rc == 0 and out.strip() not in ['part', 'md']:
                     disks.append(name.replace("!", "/"))
 
@@ -236,7 +236,7 @@ def getQualifiedDeviceName(disk):
 # Given a partition (e.g. /dev/sda1), get the id symlink:
 def idFromPartition(partition):
     symlink = None
-    v, out = util.runCmd2(util.udevinfoCmd() + ['-q', 'symlink', '-n', partition], with_stdout = True)
+    v, out = util.runCmd2(util.udevinfoCmd() + ['-q', 'symlink', '-n', partition], with_stdout=True)
     prefixes = ['disk/by-id/edd', 'disk/by-id/dm-name-', 'disk/by-id/dm-uuid-', 'disk/by-id/lvm-pv-uuid-', 'disk/by-id/cciss-']
     if v == 0:
         for link in out.split():
@@ -255,7 +255,7 @@ def __readOneLineFile__(filename):
         value = f.readline()
         f.close()
         return value
-    except Exception, e:
+    except Exception as e:
         raise e
 
 def getDiskDeviceVendor(dev):
@@ -295,7 +295,7 @@ def getDiskDeviceModel(dev):
         return __readOneLineFile__("/sys/block/%s/device/model" % dev).strip('  \n')
     else:
         return ""
-    
+
 def getDiskDeviceSize(dev):
 
     # For Multipath nodes return info about 1st slave
@@ -322,7 +322,7 @@ def getDiskSerialNumber(dev):
         serials = set(map(getDiskSerialNumber, getDeviceSlaves(dev)))
         return '/'.join(serials)
 
-    rc, out = util.runCmd2(['/bin/sdparm', '-q', '-i', '-p', 'sn', dev], with_stdout = True)
+    rc, out = util.runCmd2(['/bin/sdparm', '-q', '-i', '-p', 'sn', dev], with_stdout=True)
     if rc == 0:
         lines = out.split('\n')
         if len(lines) >= 2:
@@ -332,13 +332,13 @@ def getDiskSerialNumber(dev):
 def isRemovable(path):
 
     if path.startswith('/dev/mapper') or path.startswith('/dev/dm-') or path.startswith('dm-'):
-        return False 
+        return False
 
     if path.startswith("/dev/"):
         dev = re.match("/dev/(.*)", path).group(1)
     else:
         dev = path
-        
+
     dev = dev.replace("/", "!")
 
     if dev.startswith("xvd"):
@@ -367,7 +367,7 @@ def blockSizeToGBSize(blocks):
 
 def blockSizeToMBSize(blocks):
     return (long(blocks) * 512) / (1024 * 1024)
-    
+
 def getHumanDiskSize(blocks):
     gb = blockSizeToGBSize(blocks)
     if gb > 0:
@@ -375,14 +375,14 @@ def getHumanDiskSize(blocks):
     else:
         return "%d MB" % blockSizeToMBSize(blocks)
 
-def getExtendedDiskInfo(disk, inMb = 0):
+def getExtendedDiskInfo(disk, inMb=0):
     return (getDiskDeviceVendor(disk), getDiskDeviceModel(disk),
             inMb and (getDiskDeviceSize(disk)/2048) or getDiskDeviceSize(disk))
 
 
 def readExtPartitionLabel(partition):
     """Read the ext partition label."""
-    rc, out = util.runCmd2(['/sbin/e2label', partition], with_stdout = True)
+    rc, out = util.runCmd2(['/sbin/e2label', partition], with_stdout=True)
     if rc == 0:
         label = out.strip()
     else:
@@ -462,34 +462,34 @@ def log_available_disks():
     # make sure we have discovered at least one disk and
     # at least one network interface:
     if len(disks) == 0:
-        xelogging.log("No disks found on this host.")
+        logger.log("No disks found on this host.")
     else:
         # make sure that we have enough disk space:
-        xelogging.log("Found disks: %s" % str(disks))
+        logger.log("Found disks: %s" % str(disks))
         diskSizes = [getDiskDeviceSize(x) for x in disks]
         diskSizesGB = [blockSizeToGBSize(x) for x in diskSizes]
-        xelogging.log("Disk sizes: %s" % str(diskSizesGB))
+        logger.log("Disk sizes: %s" % str(diskSizesGB))
 
         old_dom0disks = filter(lambda x: constants.min_primary_disk_size_old <= x,
                            diskSizesGB)
         if len(old_dom0disks) == 0:
-            xelogging.log("Unable to find a suitable disk (with a size greater than %dGB) to install to." % constants.min_primary_disk_size_old)
+            logger.log("Unable to find a suitable disk (with a size greater than %dGB) to install to." % constants.min_primary_disk_size_old)
 
         dom0disks = filter(lambda x: constants.min_primary_disk_size <= x,
                            diskSizesGB)
         if len(dom0disks) == 0:
-            xelogging.log("Unable to find a suitable disk (with a size greater than %dGB) to install to." % constants.min_primary_disk_size)
+            logger.log("Unable to find a suitable disk (with a size greater than %dGB) to install to." % constants.min_primary_disk_size)
 
 INSTALL_RETAIL = 1
 STORAGE_LVM = 1
 STORAGE_EXT3 = 2
 
-def probeDisk(device, justInstall = False):
+def probeDisk(device, justInstall=False):
     """Examines device and reports the apparent presence of a XenServer installation and/or related usage
     Returns a tuple (boot, state, storage)
-    
+
     Where:
-    
+
         boot is a tuple of True or False and the partition device
         root is a tuple of None, INSTALL_RETAIL and the partition device
         state is a tuple of True or False and the partition device
@@ -502,7 +502,7 @@ def probeDisk(device, justInstall = False):
     storage = (None, None)
     logs = (False, None)
     possible_srs = []
-        
+
     tool = PartitionTool(device)
     for num, part in tool.iteritems():
         label = None
@@ -519,7 +519,7 @@ def probeDisk(device, justInstall = False):
             if label and label.startswith('root-'):
                 root = (INSTALL_RETAIL, part_device)
                 state = (True, part_device)
-                if tool.partitions.has_key(num+2):
+                if num + 2 in tool.partitions:
                     # George Retail and earlier didn't use the correct id for SRs
                     possible_srs = [num+2]
             elif label and label.startswith('logs-'):
@@ -544,8 +544,8 @@ def probeDisk(device, justInstall = False):
                     storage = (STORAGE_EXT3, part_device)
                 else:
                     storage = (STORAGE_LVM, part_device)
-    
-    xelogging.log('Probe of %s found boot=%s root=%s state=%s storage=%s logs=%s' %
+
+    logger.log('Probe of %s found boot=%s root=%s state=%s storage=%s logs=%s' %
                   (device, str(boot), str(root), str(state), str(storage), str(logs)))
 
     return (boot, root, state, storage, logs)
@@ -611,7 +611,7 @@ def setup_ibft_nics():
     netdevs = netutil.scanConfiguration()
     for name in netdevs:
         mac_map[netdevs[name].hwaddr] = name
-    xelogging.log('NET: %s %s' % (repr(netdevs), repr(mac_map)))
+    logger.log('NET: %s %s' % (repr(netdevs), repr(mac_map)))
 
     for t in glob.glob(os.path.join(constants.SYSFS_IBFT_DIR, 'target*')):
         with open(os.path.join(t, 'ip-addr'), 'r') as f:
@@ -627,8 +627,8 @@ def setup_ibft_nics():
         try:
             with open(os.path.join(e_dir, 'gateway'), 'r') as f:
                 gw = f.read().strip()
-        except IOError as e:
-            if e.errno == errno.ENOENT:
+        except IOError as err:
+            if err.errno == errno.ENOENT:
                 gw = None
             else:
                 raise
@@ -643,6 +643,66 @@ def setup_ibft_nics():
 
         configure_ibft_nic(target_ip, mac_map[mac], ip, nm, gw)
         ibft_reserved_nics.add(mac_map[mac])
+
+
+def dump_ibft():
+    logger.log("Dump iBFT:")
+    for path, dirs, files in os.walk('/sys/firmware/ibft'):
+        for item in dirs:
+            logger.log(os.path.join(path, item) + '/')
+        for item in files:
+            item =  os.path.join(path, item)
+            with open(item, 'r') as f:
+                data = f.read()
+            logger.log('%s %s' % (item, repr(data)))
+    logger.log("End of iBFT dump")
+
+
+def write_iscsi_records(mounts, primary_disk):
+    record = []
+    node_name = node_address = node_port = None
+
+    rv, out = util.runCmd2(['iscsistart', '-f'], with_stdout=True)
+    if rv:
+        raise Exception('Invalid iSCSI record')
+
+    for line in out.split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+
+        if line.startswith('node.name = '):
+            node_name = line.split()[2]
+        if line.startswith('node.conn[0].address = '):
+            node_address = line.split()[2]
+        if line.startswith('node.conn[0].port = '):
+            node_port = line.split()[2]
+        if line == '# END RECORD':
+            if node_name is None or node_address is None or node_port is None:
+                raise Exception('Invalid iSCSI record')
+
+            # Ensure that the session does not get logged out during shutdown
+            record.append('node.startup = onboot')
+            # iscsistart hardcodes the target portal group tag to 1
+            record.append('node.tpgt = 1')
+            if isDeviceMapperNode(primary_disk):
+                record.append('%s = %d\n' % ('node.session.timeo.replacement_timeout',
+                                             constants.MPATH_ISCSI_TIMEOUT))
+            record.append(line)
+
+            path = os.path.join(mounts['root'], constants.ISCSI_NODES,
+                                node_name, '%s,%s,1' % (node_address, node_port))
+            os.makedirs(path)
+            with open(os.path.join(path, 'default'), 'w') as f:
+                f.write('\n'.join(record) + '\n')
+            record = []
+            node_name = node_address = node_port = None
+            continue
+
+        record.append(line)
+
+    if record:
+        raise Exception('Invalid iSCSI record')
 
 
 def process_ibft(ui, interactive):
@@ -661,7 +721,11 @@ def process_ibft(ui, interactive):
     targets = 0
     rv, out = util.runCmd2(['iscsistart', '-f'], with_stdout=True)
     if rv:
-        xelogging.log("process_ibft: No valid iBFT found.")
+        logger.log("process_ibft: No valid iBFT found.")
+
+        # Dump iBFT state for debugging
+        dump_ibft()
+
         return
     for line in out.split('\n'):
         m = re.match('iface.net_ifacename = (.*)$', line.strip())
@@ -673,7 +737,7 @@ def process_ibft(ui, interactive):
 
     # Do nothing if the iBFT contains no valid targets
     if targets == 0:
-        xelogging.log("process_ibft: No valid target configs found in iBFT")
+        logger.log("process_ibft: No valid target configs found in iBFT")
         return
 
     # If interactive, ask user if he wants to proceed
@@ -705,8 +769,8 @@ def process_ibft(ui, interactive):
         if m:
             iscsi_disks.append('/dev/' + m.group(1))
 
-    xelogging.log('process_ibft: iSCSI Disks: %s' % (str(iscsi_disks),))
-    xelogging.log('process_ibft: Reserved NICs: %s' % (str(list(ibft_reserved_nics)),))
+    logger.log('process_ibft: iSCSI Disks: %s' % (str(iscsi_disks),))
+    logger.log('process_ibft: Reserved NICs: %s' % (str(list(ibft_reserved_nics)),))
 
 
 def release_ibft_disks():

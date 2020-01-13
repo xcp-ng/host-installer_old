@@ -1,7 +1,7 @@
-# Copyright (c) 2005-2006 XenSource, Inc. All use and distribution of this 
-# copyrighted material is governed by and subject to terms and conditions 
+# Copyright (c) 2005-2006 XenSource, Inc. All use and distribution of this
+# copyrighted material is governed by and subject to terms and conditions
 # as licensed by XenSource, Inc. All other rights reserved.
-# Xen, XenSource and XenEnterprise are either registered trademarks or 
+# Xen, XenSource and XenEnterprise are either registered trademarks or
 # trademarks of XenSource Inc. in the United States and/or other countries.
 
 ###
@@ -180,6 +180,8 @@ BOOT_MENU_TIMEOUT = 50
 
 # timeout used for multipath iscsi
 MPATH_ISCSI_TIMEOUT = 15
+
+ISCSI_NODES = 'var/lib/iscsi/nodes'
 
 # prepare configuration for common criteria security
 CC_PREPARATIONS = False

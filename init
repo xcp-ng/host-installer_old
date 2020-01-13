@@ -1,8 +1,8 @@
 #!/usr/bin/env python
-# Copyright (c) 2005-2006 XenSource, Inc. All use and distribution of this 
-# copyrighted material is governed by and subject to terms and conditions 
+# Copyright (c) 2005-2006 XenSource, Inc. All use and distribution of this
+# copyrighted material is governed by and subject to terms and conditions
 # as licensed by XenSource, Inc. All other rights reserved.
-# Xen, XenSource and XenEnterprise are either registered trademarks or 
+# Xen, XenSource and XenEnterprise are either registered trademarks or
 # trademarks of XenSource Inc. in the United States and/or other countries.
 
 ###
@@ -23,12 +23,12 @@ import tui.progress
 
 import install
 import init_constants
-import xelogging
 import netutil
 import diskutil
 import disktools
 import util
 from netinterface import *
+from xcp import logger
 
 from version import *
 
@@ -54,12 +54,12 @@ def configureNetworking(ui, device, config):
         assert 'ip' in config_dict and 'netmask' in config_dict
     if config_dict['vlan']:
         if not netutil.valid_vlan(config_dict['vlan']):
-            raise RuntimeError, "Invalid VLAN value for installer network"
+            raise RuntimeError("Invalid VLAN value for installer network")
         config_dict['vlan'] = int(config_dict['vlan'])
 
     nethw = netutil.scanConfiguration()
     netcfg = {}
-    for i in nethw.keys():
+    for i in nethw:
         if (device == i or device == nethw[i].hwaddr) and mode == 'static':
             netcfg[i] = NetInterface(NetInterface.Static, nethw[i].hwaddr,
                                      config_dict['ip'], config_dict['netmask'],
@@ -76,7 +76,7 @@ def configureNetworking(ui, device, config):
     if device == 'all':
         iface_to_start.extend(netcfg.keys())
     elif device.startswith('eth'):
-        if nethw.has_key(device):
+        if device in nethw:
             iface_to_start.append(device)
     else:
         # MAC address
@@ -93,15 +93,15 @@ def configureNetworking(ui, device, config):
         ui.progress.clearModelessDialog()
 
 def sig_term(x, y):
-    xelogging.log("Killed by another instance, terminating")
+    logger.log("Killed by another instance, terminating")
     os.system('/usr/bin/clear')
     sys.exit(0)
 
 def main(args):
     # log to tty3
-    xelogging.openLog('/dev/tty3')
-    xelogging.openLog('/tmp/install-log')
-            
+    logger.openLog('/dev/tty3')
+    logger.openLog('/tmp/install-log')
+
     tty = None
     signal.signal(signal.SIGTERM, sig_term)
     try:
@@ -124,9 +124,9 @@ def main(args):
     mpath = False
     use_ibft = False
     netdev_map = []
-    
-    xelogging.log("%s Setup - Version %s" % (PRODUCT_BRAND or PLATFORM_NAME, PRODUCT_VERSION or PLATFORM_VERSION))
-    xelogging.log("Command line args: %s" % str(args))
+
+    logger.log("%s Setup - Version %s" % (PRODUCT_BRAND or PLATFORM_NAME, PRODUCT_VERSION or PLATFORM_VERSION))
+    logger.log("Command line args: %s" % str(args))
     for (opt, val) in args.items():
         if opt == "--install":
             operation = init_constants.OPERATION_INSTALL
@@ -141,7 +141,7 @@ def main(args):
             if not val.startswith('file://'):
                 init_network = True
             ui = None
-            xelogging.openLog(sys.stdout)
+            logger.openLog(sys.stdout)
         elif opt == "--answerfile_generator":
             answerfile_script = val
             interactive = False
@@ -155,7 +155,7 @@ def main(args):
         elif opt == "--reboot":
             reboot = True
         elif opt == "--device_mapper_multipath":
-            if val.lower() in [ "disabled", "false", "0", "no" ]: 
+            if val.lower() in [ "disabled", "false", "0", "no" ]:
                 mpath = False
             elif val.lower() in [ "enabled", "true", "1", "yes", "force"]:
                 mpath = True
@@ -166,17 +166,17 @@ def main(args):
 
     # check that an answerfile was specified if we're being non-interactive:
     if not interactive and not operation:
-        xelogging.log("No operation specified for answerfile - dropping back to interactive mode.")
+        logger.log("No operation specified for answerfile - dropping back to interactive mode.")
         interactive = True
         ui = tui
 
     # start the user interface:
     if ui:
-        # switch to ISO 8859-1 mode so line drawing characters work as expected on 
+        # switch to ISO 8859-1 mode so line drawing characters work as expected on
         # vt100 terminals.
         print "\033%@"
 
-        xelogging.log("Starting 'init' user interface on %s" % tty)
+        logger.log("Starting 'init' user interface on %s" % tty)
         ui.init_ui()
 
     # let the user choose what they would like to do:
@@ -192,13 +192,13 @@ def main(args):
                         f = open('/var/run/'+p)
                         pid = int(f.readline())
                         f.close()
-                        xelogging.log("Killing installer with pid %d" % pid)
+                        logger.log("Killing installer with pid %d" % pid)
                         os.kill(pid, signal.SIGTERM)
             except:
                 pass
-                    
+
         args['--keymap'] = kmap
-        xelogging.log("Loading keymap %s" % kmap)
+        logger.log("Loading keymap %s" % kmap)
         util.runCmd2(["/bin/loadkeys", kmap])
 
     # Always sanitise netdevs - it generates
@@ -213,7 +213,7 @@ def main(args):
     if use_ibft:
         try:
             diskutil.process_ibft(ui, interactive)
-        except Exception, e:
+        except Exception as e:
             if ui:
                 ui.exn_error_dialog("install-log", False, interactive)
                 return reboot
@@ -235,7 +235,7 @@ def main(args):
     if init_network:
         configureNetworking(ui, answer_device, answer_config)
 
-    xelogging.log("Starting installation/upgrade/restore")
+    logger.log("Starting installation/upgrade/restore")
 
     rc = install.go(ui, args, answerfile_address, answerfile_script)
 
@@ -251,7 +251,7 @@ def main(args):
         diskutil.release_ibft_disks()
 
     # stop logging to tty3:
-    xelogging.closeLogs()
+    logger.closeLogs()
 
     return reboot
 

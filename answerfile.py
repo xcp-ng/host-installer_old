@@ -21,9 +21,9 @@ import netutil
 import product
 import scripts
 import util
-import xelogging
 import xml.dom.minidom
 
+from xcp import logger
 from xcp.xmlunwrap import *
 
 def normalize_disk(disk):
@@ -49,17 +49,17 @@ class Answerfile:
         elif self.top_node.nodeName == 'restore':
             self.operation = 'restore'
         else:
-            raise AnswerfileException, "Unexpected top level element"
-        
+            raise AnswerfileException("Unexpected top level element")
+
     @staticmethod
     def fetch(location):
-        xelogging.log("Fetching answerfile from %s" % location)
+        logger.log("Fetching answerfile from %s" % location)
         util.fetchFile(location, ANSWERFILE_PATH)
-            
+
         try:
             xmldoc = xml.dom.minidom.parse(ANSWERFILE_PATH)
         except:
-            raise AnswerfileException, "Answerfile is incorrectly formatted."
+            raise AnswerfileException("Answerfile is incorrectly formatted.")
 
         return Answerfile(xmldoc)
 
@@ -67,12 +67,12 @@ class Answerfile:
     def generate(location):
         ret, out, err = scripts.run_script(location, 'answerfile')
         if ret != 0:
-            raise AnswerfileException, "Generator script failed:\n\n%s" % err
+            raise AnswerfileException("Generator script failed:\n\n%s" % err)
 
         try:
             xmldoc = xml.dom.minidom.parseString(out)
         except:
-            raise AnswerfileException, "Generator script returned incorrectly formatted output."
+            raise AnswerfileException("Generator script returned incorrectly formatted output.")
 
         return Answerfile(xmldoc)
 
@@ -80,7 +80,7 @@ class Answerfile:
         """Process enough of the answerfile so that disks can be made available
         for inspection."""
 
-        xelogging.log("Processing XML answerfile setup.")
+        logger.log("Processing XML answerfile setup.")
         results = {}
         results.update(self.parseDriverSource())
         results.update(self.parseFCoEInterface())
@@ -89,10 +89,9 @@ class Answerfile:
         return results
 
     def processAnswerfile(self):
-        xelogging.log("Processing XML answerfile for %s." % self.operation)
-        results = {}
+        logger.log("Processing XML answerfile for %s." % self.operation)
         if self.operation == 'installation':
-            install_type = getStrAttribute(self.top_node, ['mode'], default = 'fresh')
+            install_type = getStrAttribute(self.top_node, ['mode'], default='fresh')
             if install_type == "fresh":
                 results = self.parseFreshInstall()
             elif install_type == "reinstall":
@@ -100,13 +99,13 @@ class Answerfile:
             elif install_type == "upgrade":
                 results = self.parseUpgrade()
             else:
-                raise AnswerfileException, "Unknown mode, %s" % install_type
+                raise AnswerfileException("Unknown mode, %s" % install_type)
 
             results['netinstall-gpg-check'] = getBoolAttribute(self.top_node, ['netinstall-gpg-check'], default = True)
             results.update(self.parseCommon())
         elif self.operation == 'restore':
             results = self.parseRestore()
-        
+
         return results
 
     def parseScripts(self):
@@ -115,24 +114,24 @@ class Answerfile:
             if stype == 'nfs' and not path.startswith('nfs://'):
                 return 'nfs://'+path
             return path
-        
+
         # new format
         script_nodes = getElementsByTagName(self.top_node, ['script'])
         for node in script_nodes:
-            stage = getStrAttribute(node, ['stage'], mandatory = True).lower()
-            stype = getStrAttribute(node, ['type'], mandatory = True).lower()
+            stage = getStrAttribute(node, ['stage'], mandatory=True).lower()
+            stype = getStrAttribute(node, ['type'], mandatory=True).lower()
             script = buildURL(stype, getText(node))
             scripts.add_script(stage, script)
 
         # depreciated formats
         nodes = getElementsByTagName(self.top_node, ['post-install-script'])
         if len(nodes) == 1:
-            stype = getStrAttribute(nodes[0], ['type'], mandatory = False).lower()
+            stype = getStrAttribute(nodes[0], ['type'], mandatory=False).lower()
             script = buildURL(stype, getText(nodes[0]))
             scripts.add_script('filesystem-populated', script)
         nodes = getElementsByTagName(self.top_node, ['install-failed-script'])
         if len(nodes) == 1:
-            stype = getStrAttribute(nodes[0], ['type'], mandatory = False).lower()
+            stype = getStrAttribute(nodes[0], ['type'], mandatory=False).lower()
             script = buildURL(stype, getText(nodes[0]))
             scripts.add_script('installation-complete', script)
         return {}
@@ -152,7 +151,7 @@ class Answerfile:
                 try:
                     part = {}
                     for k in ('number', 'size', 'id'):
-                        part[k] = getIntAttribute(node, [k], mandatory = True)
+                        part[k] = getIntAttribute(node, [k], mandatory=True)
                     results['initial-partitions'].append(part)
                 except:
                     pass
@@ -197,26 +196,26 @@ class Answerfile:
 
         backups = product.findXenSourceBackups()
         if len(backups) == 0:
-            raise AnswerfileException, "Could not locate exsisting backup."
+            raise AnswerfileException("Could not locate exsisting backup.")
 
         results['backups'] = backups
-        xelogging.log("Backup list: %s" % ", ".join(str(b) for b in backups))
+        logger.log("Backup list: %s" % ", ".join(str(b) for b in backups))
         nodes = getElementsByTagName(self.top_node, ['backup-disk'])
         if len(nodes) == 1:
             disk = normalize_disk(getText(nodes[0]))
             disk = disktools.getMpathMasterOrDisk(disk)
-            xelogging.log("Filtering backup list for disk %s" % disk)
+            logger.log("Filtering backup list for disk %s" % disk)
             backups = filter(lambda x: x.root_disk == disk, backups)
-            xelogging.log("Backup list filtered: %s" % ", ".join(str(b) for b in backups))
+            logger.log("Backup list filtered: %s" % ", ".join(str(b) for b in backups))
 
         if len(backups) > 1:
-            xelogging.log("Multiple backups found. Aborting...")
-            raise AnswerfileException, "Multiple backups were found. Unable to deduce which backup to restore from."
+            logger.log("Multiple backups found. Aborting...")
+            raise AnswerfileException("Multiple backups were found. Unable to deduce which backup to restore from.")
         elif len(backups) == 0:
-            xelogging.log("Unable to find a backup to restore. Aborting...")
-            raise AnswerfileException, "Unable to find a backup to restore."
+            logger.log("Unable to find a backup to restore. Aborting...")
+            raise AnswerfileException("Unable to find a backup to restore.")
 
-        xelogging.log("Restoring backup %s." % str(backups[0]))
+        logger.log("Restoring backup %s." % str(backups[0]))
         results['backup-to-restore'] = backups[0]
 
         return results
@@ -239,54 +238,57 @@ class Answerfile:
             results['bootloader-location'] = getMapAttribute(nodes[0], ['location'],
                                                              [('mbr', BOOT_LOCATION_MBR),
                                                               ('partition', BOOT_LOCATION_PARTITION)],
-                                                             default = 'mbr')
+                                                             default='mbr')
 
             results['write-boot-entry'] = getBoolAttribute(nodes[0], ['write-boot-entry'], default=True)
 
             bl = getText(nodes[0])
             if bl not in ['' , 'grub2']:
-                raise AnswerfileException, "Unsupported bootloader '%s'" % bl
-            
+                raise AnswerfileException("Unsupported bootloader '%s'" % bl)
+
         return results
 
     def parseExistingInstallation(self):
         results = {}
 
         inst = getElementsByTagName(self.top_node, ['existing-installation'],
-                                    mandatory = True)
+                                    mandatory=True)
         disk = normalize_disk(getText(inst[0]))
-        xelogging.log("Normalized disk: %s" % disk)
+        logger.log("Normalized disk: %s" % disk)
         disk = disktools.getMpathMasterOrDisk(disk)
-        xelogging.log('Primary disk: ' + disk)
+        logger.log('Primary disk: ' + disk)
         results['primary-disk'] = disk
 
         installations = product.findXenSourceProducts()
         installations = filter(lambda x: x.primary_disk == disk or diskutil.idFromPartition(x.primary_disk) == disk, installations)
         if len(installations) == 0:
-            raise AnswerfileException, "Could not locate the installation specified to be reinstalled."
+            raise AnswerfileException("Could not locate the installation specified to be reinstalled.")
         elif len(installations) > 1:
             # FIXME non-multipath case?
-            xelogging.log("Warning: multiple paths detected - recommend use of --device_mapper_multipath=yes")
-            xelogging.log("Warning: selecting 1st path from %s" % str(map(lambda x: x.primary_disk, installations)))
+            logger.log("Warning: multiple paths detected - recommend use of --device_mapper_multipath=yes")
+            logger.log("Warning: selecting 1st path from %s" % str(map(lambda x: x.primary_disk, installations)))
         results['installation-to-overwrite'] = installations[0]
         return results
-    
+
     def parseSource(self):
         results = {'sources': []}
-        sources = getElementsByTagName(self.top_node, ['source'], mandatory = True)
+        sources = getElementsByTagName(self.top_node, ['source'], mandatory=True)
 
         for i in sources:
-            rtype = getStrAttribute(i, ['type'], mandatory = True)
+            rtype = getStrAttribute(i, ['type'], mandatory=True)
 
             if rtype == 'local':
                 address = "Install disc"
             elif rtype in ['url', 'nfs']:
                 address = getText(i)
             else:
-                raise AnswerfileException, "Invalid type for <source> media specified."
+                raise AnswerfileException("Invalid type for <source> media specified.")
             if rtype == 'url' and address.startswith('nfs://'):
                 rtype = 'nfs'
                 address = address[6:]
+
+            if rtype == 'url':
+                address = util.URL(address)
 
             results['sources'].append({'media': rtype, 'address': address})
 
@@ -295,20 +297,23 @@ class Answerfile:
     def parseDriverSource(self):
         results = {}
         for source in getElementsByTagName(self.top_node, ['driver-source']):
-            if not results.has_key('extra-repos'):
+            if 'extra-repos' not in results:
                 results['extra-repos'] = []
 
-            rtype = getStrAttribute(source, ['type'], mandatory = True)
+            rtype = getStrAttribute(source, ['type'], mandatory=True)
             if rtype == 'local':
                 address = "Install disc"
             elif rtype in ['url', 'nfs']:
                 address = getText(source)
             else:
-                raise AnswerfileException, "Invalid type for <driver-source> media specified."
+                raise AnswerfileException("Invalid type for <driver-source> media specified.")
             if rtype == 'url' and address.startswith('nfs://'):
                 rtype = 'nfs'
                 address = address[6:]
-                
+
+            if rtype == 'url':
+                address = util.URL(address)
+
             results['extra-repos'].append((rtype, address))
         return results
 
@@ -326,7 +331,7 @@ class Answerfile:
         results = {}
 
         # Primary disk (installation)
-        node = getElementsByTagName(self.top_node, ['primary-disk'], mandatory = True)[0]
+        node = getElementsByTagName(self.top_node, ['primary-disk'], mandatory=True)[0]
         results['preserve-first-partition'] = \
                                             getMapAttribute(node, ['preserve-first-partition'],
                                                             [('true', 'true'),
@@ -334,15 +339,15 @@ class Answerfile:
                                                              ('false', 'false'),
                                                              ('no', 'false'),
                                                              ('if-utility', PRESERVE_IF_UTILITY)],
-                                                            default = 'if-utility')
+                                                            default='if-utility')
         if len(getElementsByTagName(self.top_node, ['zap-utility-partitions'])) > 0:
             results['preserve-first-partition'] = 'false'
         primary_disk = normalize_disk(getText(node))
         results['primary-disk'] = primary_disk
 
         inc_primary = getBoolAttribute(node, ['guest-storage', 'gueststorage'],
-                                       default = True)
-        results['sr-at-end'] = getBoolAttribute(node, ['sr-at-end'], default = True)
+                                       default=True)
+        results['sr-at-end'] = getBoolAttribute(node, ['sr-at-end'], default=True)
 
         # Guest disk(s) (Local SR)
         guest_disks = set()
@@ -355,7 +360,7 @@ class Answerfile:
 
         results['sr-type'] = getMapAttribute(self.top_node, ['sr-type', 'srtype'],
                                              [('lvm', SR_TYPE_LVM),
-                                              ('ext', SR_TYPE_EXT)], default = 'lvm')
+                                              ('ext', SR_TYPE_EXT)], default='lvm')
         return results
 
     def parseFCoEInterface(self):
@@ -365,7 +370,7 @@ class Answerfile:
         for interface in getElementsByTagName(self.top_node, ['fcoe-interface']):
             if_hwaddr = None
             if 'fcoe-interfaces' not in results:
-                results['fcoe-interfaces'] = {}
+                results['fcoe-interfaces'] = []
 
             if_name = getStrAttribute(interface, ['name'])
             if if_name and if_name in nethw:
@@ -379,22 +384,13 @@ class Answerfile:
             if not if_name and not if_hwaddr:
                  raise AnswerfileException("<fcoe-interface> tag must have one of 'name' or 'hwaddr'")
 
-            dcb = getStrAttribute(interface, ['dcb'])
-
-            if dcb in ['on', 'yes', 'true', '1', 'enable']:
-                dcb_state = True
-            elif dcb in ['off', 'no', 'false', '0', 'disable']:
-                dcb_state = False
-            else: # by default dcb is on
-                dcb_state = True
-
-            results['fcoe-interfaces'][if_name] = dcb_state
+            results['fcoe-interfaces'].append(if_name)
 
         return results
 
     def parseInterface(self):
         results = {}
-        node = getElementsByTagName(self.top_node, ['admin-interface'], mandatory = True)[0]
+        node = getElementsByTagName(self.top_node, ['admin-interface'], mandatory=True)[0]
         nethw = netutil.scanConfiguration()
         if_hwaddr = None
 
@@ -408,15 +404,15 @@ class Answerfile:
                 if len(matching_list) == 1:
                     if_name = matching_list[0].name
         if not if_name and not if_hwaddr:
-             raise AnswerfileException, "<admin-interface> tag must have one of 'name' or 'hwaddr'"
+             raise AnswerfileException("<admin-interface> tag must have one of 'name' or 'hwaddr'")
 
         results['net-admin-interface'] = if_name
 
-        proto = getStrAttribute(node, ['proto'], mandatory = True)
+        proto = getStrAttribute(node, ['proto'], mandatory=True)
         if proto == 'static':
-            ip = getText(getElementsByTagName(node, ['ip', 'ipaddr'], mandatory = True)[0])
-            subnet = getText(getElementsByTagName(node, ['subnet-mask', 'subnet'], mandatory = True)[0])
-            gateway = getText(getElementsByTagName(node, ['gateway'], mandatory = True)[0])
+            ip = getText(getElementsByTagName(node, ['ip', 'ipaddr'], mandatory=True)[0])
+            subnet = getText(getElementsByTagName(node, ['subnet-mask', 'subnet'], mandatory=True)[0])
+            gateway = getText(getElementsByTagName(node, ['gateway'], mandatory=True)[0])
             results['net-admin-configuration'] = NetInterface(NetInterface.Static, if_hwaddr, ip, subnet, gateway, dns=None)
         elif proto == 'dhcp':
             results['net-admin-configuration'] = NetInterface(NetInterface.DHCP, if_hwaddr)
@@ -425,8 +421,8 @@ class Answerfile:
 
         protov6 = getStrAttribute(node, ['protov6'])
         if protov6 == 'static':
-            ipv6 = getText(getElementsByTagName(node, ['ipv6'], mandatory = True)[0])
-            gatewayv6 = getText(getElementsByTagName(node, ['gatewayv6'], mandatory = True)[0])
+            ipv6 = getText(getElementsByTagName(node, ['ipv6'], mandatory=True)[0])
+            gatewayv6 = getText(getElementsByTagName(node, ['gatewayv6'], mandatory=True)[0])
             results['net-admin-configuration'].addIPv6(NetInterface.Static, ipv6, gatewayv6)
         elif protov6 == 'dhcp':
             results['net-admin-configuration'].addIPv6(NetInterface.DHCP)
@@ -436,11 +432,11 @@ class Answerfile:
         vlan = getStrAttribute(node, ['vlan'])
         if vlan:
             if not netutil.valid_vlan(vlan):
-                raise AnswerfileException, "Invalid value for vlan attribute specified."
+                raise AnswerfileException("Invalid value for vlan attribute specified.")
             results['net-admin-configuration'].vlan = int(vlan)
 
         if not results['net-admin-configuration'].valid():
-            raise AnswerfileException, "<admin-interface> tag must have IPv4 or IPv6 defined."
+            raise AnswerfileException("<admin-interface> tag must have IPv4 or IPv6 defined.")
         return results
 
     def parseRootPassword(self):
@@ -449,7 +445,7 @@ class Answerfile:
         if len(nodes) > 0:
             pw_type = getMapAttribute(nodes[0], ['type'], [('plaintext', 'plaintext'),
                                                            ('hash', 'pwdhash')],
-                                      default = 'plaintext')
+                                      default='plaintext')
             results['root-password'] = (pw_type, getText(nodes[0]))
         return results
 
@@ -500,13 +496,13 @@ class Answerfile:
         serviceNodes = getElementsByTagName(self.top_node, ['service'])
         servicesSeen = set()
         for sn in serviceNodes:
-            service = getStrAttribute(sn, ['name'], mandatory = True)
+            service = getStrAttribute(sn, ['name'], mandatory=True)
             if service in servicesSeen:
-                raise AnswerfileException, "Multiple entries for service %s" % service
+                raise AnswerfileException("Multiple entries for service %s" % service)
             servicesSeen.add(service)
-            state = getStrAttribute(sn, ['state'], mandatory = True)
+            state = getStrAttribute(sn, ['state'], mandatory=True)
             if not state in ('enabled', 'disabled'):
-                raise AnswerfileException, "Invalid state for service %s: %s" % (service, state)
+                raise AnswerfileException("Invalid state for service %s: %s" % (service, state))
             services[service] = state
         if services:
              # replace the default value

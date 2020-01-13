@@ -1,7 +1,7 @@
-# Copyright (c) 2005-2006 XenSource, Inc. All use and distribution of this 
-# copyrighted material is governed by and subject to terms and conditions 
+# Copyright (c) 2005-2006 XenSource, Inc. All use and distribution of this
+# copyrighted material is governed by and subject to terms and conditions
 # as licensed by XenSource, Inc. All other rights reserved.
-# Xen, XenSource and XenEnterprise are either registered trademarks or 
+# Xen, XenSource and XenEnterprise are either registered trademarks or
 # trademarks of XenSource Inc. in the United States and/or other countries.
 
 ###
@@ -20,8 +20,8 @@ from uicontroller import SKIP_SCREEN, EXIT, LEFT_BACKWARDS, RIGHT_FORWARDS, REPE
 import constants
 import diskutil
 from disktools import *
-import xelogging
 from version import *
+from xcp import logger
 import snackutil
 import util
 import socket
@@ -58,8 +58,8 @@ def welcome_screen(answers):
         tui.screen.popHelpLine()
         tui.update_help_line([None, ' '])
         drivers = driver.doInteractiveLoadDriver(tui, driver_answers)
-        xelogging.log(drivers)
-        xelogging.log(driver_answers)
+        logger.log(drivers)
+        logger.log(driver_answers)
         if drivers[0]:
             if 'extra-repos' not in answers: answers['extra-repos'] = []
             answers['extra-repos'].append(drivers)
@@ -97,8 +97,8 @@ Please make sure you have backed up any data you wish to preserve before proceed
 To load a device driver press <F9>.
 To setup advanced storage classes press <F10>.
 """ % (MY_PRODUCT_BRAND, MY_PRODUCT_BRAND),
-                                ['Ok', 'Reboot'], width = 60, help = "welcome",
-                                hotkeys = {'F9': fn9, 'F10': fn10})
+                                ['Ok', 'Reboot'], width=60, help="welcome",
+                                hotkeys={'F9': fn9, 'F10': fn10})
         if popup == 'driver':
             load_driver(driver_answers)
             tui.update_help_line([None, "<F9> load driver"])
@@ -111,7 +111,7 @@ To setup advanced storage classes press <F10>.
     if button == 'reboot':
         return EXIT
 
-    xelogging.log("Waiting for partitions to appear...")
+    logger.log("Waiting for partitions to appear...")
     util.runCmd2(util.udevsettleCmd())
     time.sleep(1)
     diskutil.mpath_part_scan()
@@ -143,7 +143,7 @@ To setup advanced storage classes press <F10>.
         text = """This host does not appear to have any %s.
 
 If %s are present you may need to load a device driver on the previous screen for them to be detected.""" % (text, text_short)
-        ButtonChoiceWindow(tui.screen, label, text, ["Back"], width = 48)
+        ButtonChoiceWindow(tui.screen, label, text, ["Back"], width=48)
         return REPEAT_STEP
 
     return RIGHT_FORWARDS
@@ -164,7 +164,7 @@ def hardware_warnings(answers, ram_warning, vt_warning):
         "System Hardware",
         text,
         ['Ok', 'Back'],
-        width = 60, help = "hwwarn"
+        width=60, help="hwwarn"
         )
 
     if button == 'back': return LEFT_BACKWARDS
@@ -180,7 +180,7 @@ def overwrite_warning(answers):
         "Warning",
         ("Only product installations that cannot be upgraded have been detected.\n\n%s" % warning_string),
         ['Ok', 'Back'],
-        width = 60, help = "overwrtwarn", default = 1,
+        width=60, help="overwrtwarn", default=1,
         )
 
     if button == 'back': return LEFT_BACKWARDS
@@ -189,13 +189,13 @@ def overwrite_warning(answers):
 def get_admin_interface(answers):
     default = None
     try:
-        if answers.has_key('net-admin-interface'):
+        if 'net-admin-interface' in answers:
             default = answers['net-admin-interface']
     except:
         pass
 
     net_hw = answers['network-hardware']
-    
+
     direction, iface = tui.network.select_netif("Which network interface would you like to use for connecting to the management server on your host?",
                                                 net_hw, False, default)
     if direction == RIGHT_FORWARDS:
@@ -209,9 +209,9 @@ def get_admin_interface_configuration(answers):
 
     defaults = None
     try:
-        if answers.has_key('net-admin-configuration'):
+        if 'net-admin-configuration' in answers:
             defaults = answers['net-admin-configuration']
-        elif answers.has_key('runtime-iface-configuration'):
+        elif 'runtime-iface-configuration' in answers:
             all_dhcp, manual_config = answers['runtime-iface-configuration']
             if not all_dhcp:
                 defaults = manual_config[answers['net-admin-interface']]
@@ -219,8 +219,8 @@ def get_admin_interface_configuration(answers):
         pass
 
     rc, conf = tui.network.get_iface_configuration(
-        nic, txt = "Please specify how networking should be configured for the management interface on this host.",
-        defaults = defaults
+        nic, txt="Please specify how networking should be configured for the management interface on this host.",
+        defaults=defaults
         )
     if rc == RIGHT_FORWARDS:
         answers['net-admin-configuration'] = conf
@@ -236,9 +236,9 @@ def get_installation_type(answers):
     entries.append( ("Perform clean installation", None) )
 
     # default value?
-    if answers.has_key('install-type') and answers['install-type'] == constants.INSTALL_TYPE_REINSTALL:
+    if 'install-type' in answers and answers['install-type'] == constants.INSTALL_TYPE_REINSTALL:
         default = selectDefault(answers['installation-to-overwrite'], entries)
-    elif answers.has_key('install-type') and answers['install-type'] == constants.INSTALL_TYPE_RESTORE:
+    elif 'install-type' in answers and answers['install-type'] == constants.INSTALL_TYPE_RESTORE:
         default = selectDefault(answers['backup-to-restore'], entries)
     else:
         default = None
@@ -289,19 +289,19 @@ def get_installation_type(answers):
         "Action To Perform",
         text,
         entries,
-        ['Ok', 'Back'], width=60, default = default, help = 'action:info',
-        hotkeys = {'F5': more_info})
+        ['Ok', 'Back'], width=60, default=default, help='action:info',
+        hotkeys={'F5': more_info})
 
     tui.screen.popHelpLine()
 
-    if button == 'back': 
+    if button == 'back':
         return LEFT_BACKWARDS
 
-    if entry == None:
+    if entry is None:
         answers['install-type'] = constants.INSTALL_TYPE_FRESH
         answers['preserve-settings'] = False
 
-        if answers.has_key('installation-to-overwrite'):
+        if 'installation-to-overwrite' in answers:
             del answers['installation-to-overwrite']
     elif isinstance(entry[0], product.ExistingInstallation):
         answers['install-type'] = constants.INSTALL_TYPE_REINSTALL
@@ -311,7 +311,7 @@ def get_installation_type(answers):
             answers['primary-disk'] = answers['installation-to-overwrite'].primary_disk
 
         for k in ['guest-disks', 'default-sr-uuid']:
-            if answers.has_key(k):
+            if k in answers:
                 del answers[k]
     elif isinstance(entry[0], product.XenServerBackup):
         answers['install-type'] = constants.INSTALL_TYPE_RESTORE
@@ -327,7 +327,7 @@ def ha_master_upgrade(answers):
 
 Please reboot this host, disable High Availability on the pool, check which server is the pool master and then restart the upgrade procedure.""",
         ['Cancel', 'Back'],
-        width = 60, help = 'hawarn'
+        width=60, help='hawarn'
         )
 
     if button == 'back': return LEFT_BACKWARDS
@@ -339,7 +339,7 @@ def master_not_upgraded(answers):
         "Pool Master Version",
         "The master host of this pool must be upgraded before this slave.",
         ['Cancel', 'Back'],
-        width = 60, help = 'masterwarn'
+        width=60, help='masterwarn'
         )
 
     if button == 'back': return LEFT_BACKWARDS
@@ -353,7 +353,7 @@ def upgrade_settings_warning(answers):
 
 Warning: You must use the current values. Failure to do so may result in an incorrect installation of the product.""" % str(answers['installation-to-overwrite']),
         ['Ok', 'Back'],
-        width = 60, help = 'preswarn'
+        width=60, help='preswarn'
         )
 
     if button == 'back': return LEFT_BACKWARDS
@@ -383,7 +383,7 @@ def remind_driver_repos(answers):
 %s
 Please ensure that the functionality they provide is either included in the version of %s being installed or by a Supplemental Pack for this release.""" % (text, MY_PRODUCT_BRAND),
         ['Ok', 'Back'],
-        width = 60, help = "suppackremind"
+        width=60, help="suppackremind"
         )
 
     if button == 'back': return LEFT_BACKWARDS
@@ -398,7 +398,7 @@ def repartition_existing(answers):
 The conversion will replace all previous system image partitions to create the %s %s disk partition layout.
 
 Continue with installation?""" % (COMPANY_NAME_SHORT, MY_PRODUCT_BRAND),
-        ['Continue', 'Back'], help = 'repartwarn'
+        ['Continue', 'Back'], help='repartwarn'
         )
     if button == 'back': return LEFT_BACKWARDS
 
@@ -411,7 +411,7 @@ def force_backup_screen(answers):
         tui.screen,
         "Previous Installation Detected",
         text,
-        ['Continue', 'Back'], width = 60, help = 'forceback'
+        ['Continue', 'Back'], width=60, help='forceback'
         )
     if button == 'back': return LEFT_BACKWARDS
 
@@ -420,7 +420,7 @@ def force_backup_screen(answers):
 
 def backup_existing_installation(answers):
     # default selection:
-    if answers.has_key('backup-existing-installation'):
+    if 'backup-existing-installation' in answers:
         if answers['backup-existing-installation']:
             default = 0
         else:
@@ -434,7 +434,7 @@ def backup_existing_installation(answers):
         """Would you like to back-up your existing installation before re-installing %s?
 
 The backup will be placed on the backup partition of the destination disk (%s), overwriting any previous backups on that volume.""" % (MY_PRODUCT_BRAND, answers['installation-to-overwrite'].primary_disk),
-        ['Yes', 'No', 'Back'], default = default, help = 'optbackup'
+        ['Yes', 'No', 'Back'], default=default, help='optbackup'
         )
 
     if button == 'back': return LEFT_BACKWARDS
@@ -452,7 +452,7 @@ def eula_screen(answers):
             tui.screen,
             "End User License Agreement",
             eula,
-            ['Accept EULA', 'Back'], width=60, default=1, help = 'eula')
+            ['Accept EULA', 'Back'], width=60, default=1, help='eula')
 
         if button == 'accept eula':
             return RIGHT_FORWARDS
@@ -471,7 +471,7 @@ def confirm_erase_volume_groups(answers):
         return SKIP_SCREEN
 
     if len(problems) == 1:
-        xelogging.log("Problematic VGs: %s" % problems)
+        logger.log("Problematic VGs: %s" % problems)
         affected = "The volume group affected is %s.  Are you sure you wish to continue?" % problems[0]
     elif len(problems) > 1:
         affected = "The volume groups affected are %s.  Are you sure you wish to continue?" % generalui.makeHumanList(problems)
@@ -481,7 +481,7 @@ def confirm_erase_volume_groups(answers):
                                 """Some or all of the disks you selected to install %s onto contain parts of LVM volume groups.  Proceeding with the installation will cause these volume groups to be deleted.
 
 %s""" % (MY_PRODUCT_BRAND, affected),
-                                ['Continue', 'Back'], width=60, help = 'erasevg')
+                                ['Continue', 'Back'], width=60, help='erasevg')
 
     if button == 'back': return LEFT_BACKWARDS
     return RIGHT_FORWARDS
@@ -501,12 +501,12 @@ def use_extra_media(answers):
 def setup_runtime_networking(answers):
     defaults = None
     try:
-        if answers.has_key('net-admin-interface'):
+        if 'net-admin-interface' in answers:
             defaults = {'net-admin-interface': answers['net-admin-interface']}
-            if answers.has_key('runtime-iface-configuration') and \
-                    answers['runtime-iface-configuration'][1].has_key(answers['net-admin-interface']):
+            if 'runtime-iface-configuration' in answers and \
+                    answers['net-admin-interface'] in answers['runtime-iface-configuration'][1]:
                 defaults['net-admin-configuration'] = answers['runtime-iface-configuration'][1][answers['net-admin-interface']]
-        elif answers.has_key('installation-to-overwrite'):
+        elif 'installation-to-overwrite' in answers:
             defaults = answers['installation-to-overwrite'].readSettings()
     except:
         pass
@@ -638,7 +638,7 @@ def select_primary_disk(answers):
     else:
         # default value:
         default = None
-        if answers.has_key('primary-disk'):
+        if 'primary-disk' in answers:
             default = selectDefault(answers['primary-disk'], entries)
 
         tui.update_help_line([None, "<F5> more info"])
@@ -651,8 +651,8 @@ def select_primary_disk(answers):
 
 You may need to change your system settings to boot from this disk.""" % (MY_PRODUCT_BRAND),
             entries,
-            ['Ok', 'Software RAID', 'Back'], 55, scroll, height, default, help = 'pridisk:info',
-            hotkeys = {'F5': disk_more_info})
+            ['Ok', 'Software RAID', 'Back'], 55, scroll, height, default, help='pridisk:info',
+            hotkeys={'F5': disk_more_info})
 
         tui.screen.popHelpLine()
 
@@ -680,7 +680,7 @@ You may need to change your system settings to boot from this disk.""" % (MY_PRO
                                "The disk selected to install %s to is greater than %d GB.  The partitioning scheme is limited to this value and therefore the remainder of this disk will be unavailable." % (MY_PRODUCT_BRAND, constants.max_primary_disk_size_dos),
                                ['Ok'])
 
-    if button == None: return RIGHT_FORWARDS
+    if button is None: return RIGHT_FORWARDS
     if button == 'software raid':
         return raid_array_ui(answers)
     if button == 'back': return LEFT_BACKWARDS
@@ -705,7 +705,7 @@ def check_sr_space(answers):
                                 """The disk selected contains a storage repository which does not have enough space to also install %s on.
 
     Either return to the previous screen and select a different disk or cancel the installation, restart the %s and use %s to free up %dMB of space in the local storage repository.""" % (MY_PRODUCT_BRAND, BRAND_SERVER, BRAND_CONSOLE, 2 * root_size),
-                                ['Back', 'Cancel'], width = 60, help = 'insuffsr')
+                                ['Back', 'Cancel'], width=60, help='insuffsr')
     if button == 'back': return LEFT_BACKWARDS
 
     return EXIT
@@ -725,7 +725,7 @@ def select_guest_disks(answers):
         return SKIP_SCREEN
 
     # set up defaults:
-    if answers.has_key('guest-disks'):
+    if 'guest-disks' in answers:
         currently_selected = answers['guest-disks']
     else:
         currently_selected = answers['primary-disk']
@@ -739,7 +739,7 @@ def select_guest_disks(answers):
         (vendor, model, size) = diskutil.getExtendedDiskInfo(de)
         entry = "%s - %s [%s %s]" % (diskutil.getHumanDiskName(de), diskutil.getHumanDiskSize(size), vendor, model)
         entries.append((entry, de))
-        
+
     text = TextboxReflowed(54, "Which disks would you like to use for %s storage?  \n\nOne storage repository will be created that spans the selected disks.  You can choose not to prepare any storage if you wish to create an advanced configuration after installation." % BRAND_GUEST)
     buttons = ButtonBar(tui.screen, [('Ok', 'ok'), ('Back', 'back')])
     scroll, _ = snackutil.scrollHeight(3, len(entries))
@@ -754,13 +754,13 @@ def select_guest_disks(answers):
                            "EXT: file based. May be slower. Thin provisioning.")
 
     gf = GridFormHelp(tui.screen, 'Virtual Machine Storage', 'guestdisk:info', 1, 5)
-    gf.add(text, 0, 0, padding = (0, 0, 0, 1))
-    gf.add(cbt, 0, 1, padding = (0, 0, 0, 1))
-    gf.add(tb, 0, 2, padding = (0, 0, 0, 0))
-    gf.add(explanations, 0, 3, padding = (0, 0, 0, 1))
-    gf.add(buttons, 0, 4, growx = 1)
+    gf.add(text, 0, 0, padding=(0, 0, 0, 1))
+    gf.add(cbt, 0, 1, padding=(0, 0, 0, 1))
+    gf.add(tb, 0, 2, padding=(0, 0, 0, 0))
+    gf.add(explanations, 0, 3, padding=(0, 0, 0, 1))
+    gf.add(buttons, 0, 4, growx=1)
     gf.addHotKey('F5')
-    
+
     tui.update_help_line([None, "<F5> more info"])
 
     loop = True
@@ -772,9 +772,9 @@ def select_guest_disks(answers):
             loop = False
     tui.screen.popWindow()
     tui.screen.popHelpLine()
-    
+
     button = buttons.buttonPressed(rc)
-    
+
     if button == 'back': return LEFT_BACKWARDS
 
     answers['guest-disks'] = cbt.getSelection()
@@ -790,7 +790,7 @@ def select_guest_disks(answers):
             """You didn't select any disks for %s storage.  Are you sure this is what you want?
 
 If you proceed, please refer to the user guide for details on provisioning storage after installation.""" % BRAND_GUEST,
-            ['Continue', 'Back'], help = 'noguest'
+            ['Continue', 'Back'], help='noguest'
             )
         if button == 'back': return REPEAT_STEP
 
@@ -829,34 +829,34 @@ def confirm_installation(answers):
 
     button = snackutil.ButtonChoiceWindowEx(
         tui.screen, label, text,
-        [ok, 'Back'], default = 1, width = 50, help = 'confirm'
+        [ok, 'Back'], default=1, width=50, help='confirm'
         )
 
-    if button == None or button == 'back': return LEFT_BACKWARDS
+    if button is None or button == 'back': return LEFT_BACKWARDS
     return RIGHT_FORWARDS
 
 def get_root_password(answers):
     done = False
 
     password_txt = "Please specify a password of at least %d characters for the root account." % (constants.MIN_PASSWD_LEN)
-    
-    if PRODUCT_BRAND:       
+
+    if PRODUCT_BRAND:
         password_txt = "Please specify a password of at least %d characters for the root account. \n\n(This is the password used when connecting to the %s from %s.)" % (constants.MIN_PASSWD_LEN, BRAND_SERVER, BRAND_CONSOLE)
- 
+
     while not done:
         (button, result) = snackutil.PasswordEntryWindow(
             tui.screen, "Set Password", password_txt,
-            ['Password', 'Confirm'], buttons = ['Ok', 'Back'],
+            ['Password', 'Confirm'], buttons=['Ok', 'Back'],
             )
         if button == 'back': return LEFT_BACKWARDS
-        
+
         (pw, conf) = result
         if pw == conf:
-            if pw == None or len(pw) < constants.MIN_PASSWD_LEN:
+            if pw is None or len(pw) < constants.MIN_PASSWD_LEN:
                 ButtonChoiceWindow(tui.screen,
                                "Password Error",
                                "The password has to be %d characters or longer." % constants.MIN_PASSWD_LEN,
-                               ['Ok'], help = 'passwd')
+                               ['Ok'], help='passwd')
             else:
                 done = True
         else:
@@ -883,9 +883,9 @@ def get_name_service_configuration(answers):
 
     # HOSTNAME:
     hn_title = Textbox(len("Hostname Configuration"), 1, "Hostname Configuration")
-    
+
     # the hostname radio group:
-    if not answers.has_key('manual-hostname'):
+    if 'manual-hostname' not in answers:
         # no current value set - if we currently have a useful hostname,
         # use that, else make up a random one:
         current_hn = socket.gethostname()
@@ -894,17 +894,17 @@ def get_name_service_configuration(answers):
         else:
             answers['manual-hostname'] = True, current_hn
     use_manual_hostname, manual_hostname = answers['manual-hostname']
-    if manual_hostname == None:
+    if manual_hostname is None:
         manual_hostname = ""
-        
+
     hn_rbgroup = RadioGroup()
     hn_dhcp_rb = hn_rbgroup.add("Automatically set via DHCP", "hn_dhcp", not use_manual_hostname)
-    hn_dhcp_rb.setCallback(hn_callback, data = (False,))
+    hn_dhcp_rb.setCallback(hn_callback, data=(False,))
     hn_manual_rb = hn_rbgroup.add("Manually specify:", "hn_manual", use_manual_hostname)
-    hn_manual_rb.setCallback(hn_callback, data = (True,))
+    hn_manual_rb.setCallback(hn_callback, data=(True,))
 
     # the hostname text box:
-    hostname = Entry(hide_rb and 30 or 42, text = manual_hostname)
+    hostname = Entry(hide_rb and 30 or 42, text=manual_hostname)
     hostname.setFlags(FLAG_DISABLED, use_manual_hostname)
     hostname_grid = Grid(2, 1)
     if hide_rb:
@@ -950,7 +950,7 @@ def get_name_service_configuration(answers):
     ns1_grid = Grid(2, 1)
     ns1_grid.setField(ns1_text, 0, 0)
     ns1_grid.setField(ns1_entry, 1, 0)
-    
+
     ns2_text = Textbox(15, 1, "DNS Server 2:")
     ns2_entry = Entry(30, nsvalue(answers, 1))
     ns2_grid = Grid(2, 1)
@@ -974,23 +974,23 @@ def get_name_service_configuration(answers):
         # The form itself:
         i = 1
         gf = GridFormHelp(tui.screen, 'Hostname and DNS Configuration', 'dns', 1, 11)
-        gf.add(hn_title, 0, 0, padding = (0, 0, 0, 0))
+        gf.add(hn_title, 0, 0, padding=(0, 0, 0, 0))
         if not hide_rb:
-            gf.add(hn_dhcp_rb, 0, 1, anchorLeft = True)
-            gf.add(hn_manual_rb, 0, 2, anchorLeft = True)
+            gf.add(hn_dhcp_rb, 0, 1, anchorLeft=True)
+            gf.add(hn_manual_rb, 0, 2, anchorLeft=True)
             i += 2
-        gf.add(hostname_grid, 0, i, padding = (0, 0, 0, 1), anchorLeft = True)
-    
-        gf.add(ns_title, 0, i+1, padding = (0, 0, 0, 0))
+        gf.add(hostname_grid, 0, i, padding=(0, 0, 0, 1), anchorLeft=True)
+
+        gf.add(ns_title, 0, i+1, padding=(0, 0, 0, 0))
         if not hide_rb:
-            gf.add(ns_dhcp_rb, 0, 5, anchorLeft = True)
-            gf.add(ns_manual_rb, 0, 6, anchorLeft = True)
+            gf.add(ns_dhcp_rb, 0, 5, anchorLeft=True)
+            gf.add(ns_manual_rb, 0, 6, anchorLeft=True)
             i += 2
         gf.add(ns1_grid, 0, i+2)
         gf.add(ns2_grid, 0, i+3)
-        gf.add(ns3_grid, 0, i+4, padding = (0, 0, 0, 1))
-    
-        gf.add(buttons, 0, 10, growx = 1)
+        gf.add(ns3_grid, 0, i+4, padding=(0, 0, 0, 1))
+
+        gf.add(buttons, 0, 10, growx=1)
 
         button = buttons.buttonPressed(gf.runOnce())
 
@@ -1013,12 +1013,12 @@ def get_name_service_configuration(answers):
                 answers['net-admin-configuration'].dns = answers['manual-nameservers'][1]
         else:
             answers['manual-nameservers'] = (False, None)
-            
+
         # validate before allowing the user to continue:
         done = True
 
         if hn_manual_rb.selected():
-            if not netutil.valid_hostname(hostname.value(), fqdn = True):
+            if not netutil.valid_hostname(hostname.value(), fqdn=True):
                 done = False
                 ButtonChoiceWindow(tui.screen,
                                        "Name Service Configuration",
@@ -1042,15 +1042,15 @@ def get_timezone_region(answers):
 
     # default value?
     default = None
-    if answers.has_key('timezone-region'):
+    if 'timezone-region' in answers:
         default = answers['timezone-region']
 
     (button, entry) = ListboxChoiceWindow(
         tui.screen,
         "Select Time Zone",
         "Please select the geographical area that your %s is in:" % BRAND_SERVER,
-        entries, ['Ok', 'Back'], height = 8, scroll = 1,
-        default = default)
+        entries, ['Ok', 'Back'], height=8, scroll=1,
+        default=default)
 
     if button == 'back': return LEFT_BACKWARDS
 
@@ -1062,7 +1062,7 @@ def get_timezone_city(answers):
 
     # default value?
     default = None
-    if answers.has_key('timezone-city') and answers['timezone-city'] in entries:
+    if 'timezone-city' in answers and answers['timezone-city'] in entries:
         default = answers['timezone-city'].replace('_', ' ')
 
     (button, entry) = ListboxChoiceWindow(
@@ -1070,7 +1070,7 @@ def get_timezone_city(answers):
         "Select Time Zone",
         "Please select the city or area that the managed host is in (press a letter to jump to that place in the list):",
         map(lambda x: x.replace('_', ' '), entries),
-        ['Ok', 'Back'], height = 8, scroll = 1, default = default, help = 'gettz')
+        ['Ok', 'Back'], height=8, scroll=1, default=default, help='gettz')
 
     if button == 'back': return LEFT_BACKWARDS
 
@@ -1085,14 +1085,14 @@ def get_time_configuration_method(answers):
 
     # default value?
     default = None
-    if answers.has_key("time-config-method"):
+    if "time-config-method" in answers:
         default = selectDefault(answers['time-config-method'], entries)
 
     (button, entry) = ListboxChoiceWindow(
         tui.screen,
         "System Time",
-        "How should the local time be determined?\n\n(Note that if you choose to enter it manually, you will need to respond to a prompt at the end of the installation.)",
-        entries, ['Ok', 'Back'], default = default, help = 'timemeth')
+        "How should the local time be determined?",
+        entries, ['Ok', 'Back'], default=default, help='timemeth')
 
     if button == 'back': return LEFT_BACKWARDS
 
@@ -1120,7 +1120,7 @@ def get_ntp_servers(answers):
     dhcp_cb.setCallback(dhcp_change, ())
 
     def ntpvalue(answers, sn):
-        if not answers.has_key('ntp-servers'):
+        if 'ntp-servers' not in answers:
             return ""
         else:
             servers = answers['ntp-servers']
@@ -1150,12 +1150,12 @@ def get_ntp_servers(answers):
 
     i = 1
 
-    gf.add(text, 0, 0, padding = (0, 0, 0, 1))
+    gf.add(text, 0, 0, padding=(0, 0, 0, 1))
     if not hide_cb:
         gf.add(dhcp_cb, 0, 1)
         i += 1
-    gf.add(entry_grid, 0, i, padding = (0, 0, 0, 1))
-    gf.add(buttons, 0, i+1, growx = 1)
+    gf.add(entry_grid, 0, i, padding=(0, 0, 0, 1))
+    gf.add(buttons, 0, i+1, growx=1)
 
     button = buttons.buttonPressed(gf.runOnce())
 
@@ -1175,54 +1175,54 @@ def get_ntp_servers(answers):
         answers['ntp-servers'] = []
     return RIGHT_FORWARDS
 
-# this is used directly by backend.py - 'now' is localtime
-def set_time(answers, now, show_back_button = False):
+def set_time(answers):
+    if answers['time-config-method'] != 'manual':
+        return SKIP_SCREEN
+
     done = False
+    now = util.getLocalTime(timezone=answers['timezone'])
 
     # set these outside the loop so we don't overwrite them in the
     # case that the user enters a bad value.
-    day = Entry(3, "%02d" % now.day, scroll = 0)
-    month = Entry(3, "%02d" % now.month, scroll = 0)
-    year = Entry(5, "%04d" % now.year, scroll = 0)
-    hour = Entry(3, "%02d" % now.hour, scroll = 0)
-    minute = Entry(3, "%02d" % now.minute, scroll = 0)
+    day = Entry(3, "%02d" % now.day, scroll=0)
+    month = Entry(3, "%02d" % now.month, scroll=0)
+    year = Entry(5, "%04d" % now.year, scroll=0)
+    hour = Entry(3, "%02d" % now.hour, scroll=0)
+    minute = Entry(3, "%02d" % now.minute, scroll=0)
 
     # loop until the form validates or they click back:
     while not done:
         gf = GridFormHelp(tui.screen, "Set local time", 'settime', 1, 4)
-        
-        gf.add(TextboxReflowed(50, "Please set the current (local) date and time"), 0, 0, padding = (0, 0, 1, 1))
-        
+
+        gf.add(TextboxReflowed(50, "Please set the current (local) date and time"), 0, 0, padding=(0, 0, 1, 1))
+
         dategrid = Grid(7, 4)
         # TODO: switch day and month around if in appropriate timezone
         dategrid.setField(Textbox(12, 1, "Year (YYYY)"), 1, 0)
         dategrid.setField(Textbox(12, 1, "Month (MM)"), 2, 0)
         dategrid.setField(Textbox(12, 1, "Day (DD)"), 3, 0)
-        
+
         dategrid.setField(Textbox(12, 1, "Hour (HH)"), 1, 2)
         dategrid.setField(Textbox(12, 1, "Min (MM)"), 2, 2)
         dategrid.setField(Textbox(12, 1, ""), 3, 2)
-        
+
         dategrid.setField(Textbox(12, 1, ""), 0, 0)
         dategrid.setField(Textbox(12, 1, "Date:"), 0, 1)
         dategrid.setField(Textbox(12, 1, "Time (24h):"), 0, 3)
         dategrid.setField(Textbox(12, 1, ""), 0, 2)
-        
+
         dategrid.setField(year, 1, 1, padding=(0, 0, 0, 1))
         dategrid.setField(month, 2, 1, padding=(0, 0, 0, 1))
         dategrid.setField(day, 3, 1, padding=(0, 0, 0, 1))
-        
+
         dategrid.setField(hour, 1, 3)
         dategrid.setField(minute, 2, 3)
-        
+
         gf.add(dategrid, 0, 1, padding=(0, 0, 1, 1))
 
-        if show_back_button:
-            buttons = ButtonBar(tui.screen, [("Ok", "ok"), ("Back", "back")])
-        else:
-            buttons = ButtonBar(tui.screen, [("Ok", "ok")])
-        gf.add(buttons, 0, 2, growx = 1)
-        
+        buttons = ButtonBar(tui.screen, [("Ok", "ok"), ("Back", "back")])
+        gf.add(buttons, 0, 2, growx=1)
+
         button = buttons.buttonPressed(gf.runOnce())
 
         if button == 'back': return LEFT_BACKWARDS
@@ -1234,7 +1234,7 @@ def set_time(answers, now, show_back_button = False):
                               int(day.value()),
                               int(hour.value()),
                               int(minute.value()))
-        except ValueError, _:
+        except ValueError:
             # the date was invalid - tell them why:
             done = False
             ButtonChoiceWindow(tui.screen, "Date error",
@@ -1245,7 +1245,6 @@ def set_time(answers, now, show_back_button = False):
 
     # we're done:
     assert button == 'ok'
-    answers['set-time'] = True
     answers['set-time-dialog-dismissed'] = datetime.datetime.now()
     answers['localtime'] = datetime.datetime(int(year.value()),
                                              int(month.value()),
