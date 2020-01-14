@@ -400,8 +400,8 @@ def performInstallation(answers, ui_package, interactive):
             repos = repository.repositoriesFromDefinition(media, address)
             add_repos(all_repositories, repos)
 
-    if not all_repositories or all_repositories[0].identifier() != MAIN_REPOSITORY_NAME:
-        raise RuntimeError("No main repository found")
+        if not all_repositories or all_repositories[0].identifier() != MAIN_REPOSITORY_NAME:
+            raise RuntimeError("No main repository found")
 
         # Check the GPG key of the main repository when a remote repository is used.
         if answers['netinstall-gpg-check']:
