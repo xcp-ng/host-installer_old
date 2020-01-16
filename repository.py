@@ -183,7 +183,7 @@ history_record=false
     def _installPackages(self, progress_callback, mounts):
         url = self._accessor.url()
         logger.log("URL: " + str(url))
-	gpgcheck = bool(self._gpg_key)
+        gpgcheck = bool(self._gpg_key)
         with open('/root/yum.conf', 'w') as yum_conf:
             yum_conf.write(self._yum_conf)
             yum_conf.write("""
