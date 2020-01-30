@@ -24,7 +24,6 @@ import xcp.logger as logger
 from disktools import *
 import time
 from snackutil import ButtonChoiceWindowEx
-import errno
 
 use_mpath = False
 
