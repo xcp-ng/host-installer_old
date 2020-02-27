@@ -141,6 +141,7 @@ def runMainSequence(results, ram_warning, vt_warning, suppress_extra_cd_dialog):
         results['preserve-settings'] = False
 
     seq = [
+        Step(uis.kernel_warning),
         Step(uis.welcome_screen),
         Step(uis.eula_screen),
         Step(uis.hardware_warnings,

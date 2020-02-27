@@ -37,6 +37,8 @@ import tui.progress
 import driver
 import tui.fcoe
 
+import os
+
 MY_PRODUCT_BRAND = PRODUCT_BRAND or PLATFORM_NAME
 
 def selectDefault(key, entries):
@@ -47,6 +49,23 @@ def selectDefault(key, entries):
         if key == k:
             return text, k
     return None
+
+# kernel-alt warning
+def kernel_warning(key):
+    if util.isKernelAlt():
+        button = snackutil.ButtonChoiceWindowEx(
+            tui.screen,
+            "Kernel-alt",
+            "You chose to run kernel-alt.\n\n\
+             It is an alternate kernel to base with upstream patches and\n\
+             latest drivers but it is not as well tested as base kernel.",
+            ['Ok', 'Reboot'], width=70)
+
+        if button == 'ok' or button is None:
+            return True
+        else:
+            os.system("reboot")
+    return True
 
 # welcome screen:
 def welcome_screen(answers):

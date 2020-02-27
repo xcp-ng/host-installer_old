@@ -18,6 +18,7 @@ import traceback
 import constants
 import sys
 from xcp import logger
+import platform
 
 screen = None
 help_pad = [33, 17, 16]
@@ -38,7 +39,7 @@ To advance to the next screen navigate to the Ok button and press Enter or press
 def init_ui():
     global screen
     screen = SnackScreen()
-    screen.drawRootText(0, 0, "Welcome to %s - Version %s" % (PRODUCT_BRAND or PLATFORM_NAME, PRODUCT_VERSION or PLATFORM_VERSION))
+    screen.drawRootText(0, 0, "Welcome to %s - Version %s (Kernel %s)" % (PRODUCT_BRAND or PLATFORM_NAME, PRODUCT_VERSION or PLATFORM_VERSION, platform.release()))
     if PRODUCT_BRAND:
         if len(COPYRIGHT_YEARS) > 0:
             screen.drawRootText(0, 1, "Copyright (c) %s %s" % (COPYRIGHT_YEARS, COMPANY_NAME_LEGAL))
