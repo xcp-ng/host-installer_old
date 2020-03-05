@@ -374,10 +374,6 @@ def isNetInstall():
     with open('/proc/cmdline') as f:
         return 'netinstall' in f.read().split(' ')
 
-def isKernelAlt():
-    with open('/proc/cmdline') as f:
-        return 'kernel-alt' in f.read().split(' ')
-
 def getLocalTime(timezone=None):
     if timezone:
         os.environ['TZ'] = timezone

@@ -180,7 +180,7 @@ history_record=false
         installed_repos[str(self)] = self
         return installed_repos
 
-    def _installPackages(self, progress_callback, mounts):
+    def _installPackages(self, progress_callback, mounts, kernel_alt):
         url = self._accessor.url()
         logger.log("URL: " + str(url))
         gpgcheck = bool(self._gpg_key)
@@ -206,6 +206,11 @@ repo_gpgcheck=%d
         # Use a temporary file to avoid deadlocking
         stderr = tempfile.TemporaryFile()
 
+        if kernel_alt:
+            logger.log("WE WILL INSTALL KERNEL-ALT RODJUDJU")
+            self._targets.append('kernel-alt')
+        else:
+            logger.log("NOT INSTALLING KERNEL-ALT: %r" % kernel_alt)
         yum_command = ['yum', '-c', '/root/yum.conf',
                        '--installroot', mounts['root'],
                        'install', '-y'] + self._targets
@@ -274,10 +279,10 @@ If you are using your own modified (and trusted) repository over a trusted netwo
                     )
             raise UnrecoverableRepoError("Error installing packages")
 
-    def installPackages(self, progress_callback, mounts):
+    def installPackages(self, progress_callback, mounts, kernel_alt=False):
         self._accessor.start()
         try:
-            self._installPackages(progress_callback, mounts)
+            self._installPackages(progress_callback, mounts, kernel_alt)
         finally:
             self._accessor.finish()
 
