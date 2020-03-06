@@ -207,10 +207,7 @@ repo_gpgcheck=%d
         stderr = tempfile.TemporaryFile()
 
         if kernel_alt:
-            logger.log("WE WILL INSTALL KERNEL-ALT RODJUDJU")
             self._targets.append('kernel-alt')
-        else:
-            logger.log("NOT INSTALLING KERNEL-ALT: %r" % kernel_alt)
         yum_command = ['yum', '-c', '/root/yum.conf',
                        '--installroot', mounts['root'],
                        'install', '-y'] + self._targets
