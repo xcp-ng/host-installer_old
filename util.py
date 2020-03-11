@@ -370,10 +370,6 @@ def udevinfoCmd():
 def randomLabelStr():
     return "".join([random.choice(string.ascii_lowercase) for x in range(6)])
 
-def isNetInstall():
-    with open('/proc/cmdline') as f:
-        return 'netinstall' in f.read().split(' ')
-
 def getLocalTime(timezone=None):
     if timezone:
         os.environ['TZ'] = timezone

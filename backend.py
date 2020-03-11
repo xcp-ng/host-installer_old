@@ -437,7 +437,7 @@ def performInstallation(answers, ui_package, interactive):
         if r.accessor().canEject():
             r.accessor().eject()
 
-    if util.isNetInstall():
+    if answers.get('netinstall'):
         for device in getRemovableDeviceList():
             util.runCmd2(['eject', device])
 

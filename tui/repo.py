@@ -99,7 +99,7 @@ def select_repo_source(answers, title, text, require_base_repo=True):
     entries = [ ENTRY_LOCAL ]
 
     default = ENTRY_LOCAL
-    if util.isNetInstall():
+    if answers.get('netinstall'):
         entries = []
         default = ENTRY_URL
     if len(answers['network-hardware'].keys()) > 0:
