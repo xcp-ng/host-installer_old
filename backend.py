@@ -437,6 +437,12 @@ def performInstallation(answers, ui_package, interactive):
         if r.accessor().canEject():
             r.accessor().eject()
 
+    # XCP-ng: so, very unfortunately we don't remember with precision why this was added and
+    # no commit message or comment can help us here.
+    # It may be related to the fact that the "all_repositories" above doesn't contain
+    # the installation CD-ROM or USB stick in the case of a netinstall.
+    # Question: why it is needed at all since there's no repository on the netinstall
+    # installation media?
     if answers.get('netinstall'):
         for device in getRemovableDeviceList():
             util.runCmd2(['eject', device])
