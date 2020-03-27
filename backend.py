@@ -1767,7 +1767,7 @@ def postInstallAltKernel(mounts, kernel_alt):
         util.runCmd2(['chroot', mounts['root'], 'dracut', '-f', '/boot/initrd-%s.img' % version, version])
 
         # Update grub
-        util.runCmd2(['chroot', mounts['root'], 'python', '/usr/lib/python2.7/site-packages/xcp/updategrub.py', '--add', version])
+        util.runCmd2(['chroot', mounts['root'], 'python', '/usr/lib/python2.7/site-packages/xcp/updategrub.py', 'add', 'kernel-alt', version])
     finally:
         util.umount("%s/dev" % mounts['root'])
         util.umount("%s/sys" % mounts['root'])
