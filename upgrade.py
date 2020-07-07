@@ -99,31 +99,52 @@ class Upgrader(object):
             gid) for the source and destination roots. """
             with open(os.path.join(src_root, 'etc/passwd'), 'r') as f:
                 for line in f:
-                    pwnam, _, uid, _ = line.split(':', 3)
-                    src_uid_map[int(uid)] = pwnam
+                    try:
+                        pwnam, _, uid, _ = line.split(':', 3)
+                        src_uid_map[int(uid)] = pwnam
+                    except ValueError as e:
+                        logger.error('Failed to parse: ' + line)
+                        logger.logException(e)
 
             with open(os.path.join(src_root, 'etc/group'), 'r') as f:
                 for line in f:
-                    pwnam, _, gid, _ = line.split(':', 3)
-                    src_gid_map[int(gid)] = pwnam
+                    try:
+                        pwnam, _, gid, _ = line.split(':', 3)
+                        src_gid_map[int(gid)] = pwnam
+                    except ValueError as e:
+                        logger.error('Failed to parse: ' + line)
+                        logger.logException(e)
 
             with open(os.path.join(dst_root, 'etc/passwd'), 'r') as f:
                 for line in f:
-                    pwnam, _, uid, _ = line.split(':', 3)
-                    dst_uid_map[pwnam] = int(uid)
+                    try:
+                        pwnam, _, uid, _ = line.split(':', 3)
+                        dst_uid_map[pwnam] = int(uid)
+                    except ValueError as e:
+                        logger.error('Failed to parse: ' + line)
+                        logger.logException(e)
 
             with open(os.path.join(dst_root, 'etc/group'), 'r') as f:
                 for line in f:
-                    pwnam, _, gid, _ = line.split(':', 3)
-                    dst_gid_map[pwnam] = int(gid)
+                    try:
+                        pwnam, _, gid, _ = line.split(':', 3)
+                        dst_gid_map[pwnam] = int(gid)
+                    except ValueError as e:
+                        logger.error('Failed to parse: ' + line)
+                        logger.logException(e)
 
         # Copy ownership from a path in a source root to another path in a
         # destination root. The ownership is copied such that it is not
         # affected by changes in the underlying uid/gid.
         def copy_ownership(src_root, src_path, dst_root, dst_path):
             st = os.lstat('%s/%s' % (src_root, src_path))
-            new_uid = dst_uid_map[src_uid_map[st.st_uid]]
-            new_gid = dst_gid_map[src_gid_map[st.st_gid]]
+            try:
+                new_uid = dst_uid_map[src_uid_map[st.st_uid]]
+                new_gid = dst_gid_map[src_gid_map[st.st_gid]]
+            except IndexError as e:
+                logger.error('Failed to copy ownership')
+                logger.logException(e)
+                return
             if st.st_uid != new_uid or st.st_gid != new_gid:
                 os.lchown('%s/%s' % (dst_root, dst_path), new_uid, new_gid)
 
@@ -441,8 +462,8 @@ class ThirdGenUpgrader(Upgrader):
 
         self.restore_list += ['var/lib/xcp/verify_certificates']
 
-    completeUpgradeArgs = ['mounts', 'installation-to-overwrite', 'primary-disk', 'backup-partnum', 'net-admin-interface', 'net-admin-bridge', 'net-admin-configuration']
-    def completeUpgrade(self, mounts, prev_install, target_disk, backup_partnum, admin_iface, admin_bridge, admin_config):
+    completeUpgradeArgs = ['mounts', 'installation-to-overwrite', 'primary-disk', 'backup-partnum', 'logs-partnum', 'net-admin-interface', 'net-admin-bridge', 'net-admin-configuration']
+    def completeUpgrade(self, mounts, prev_install, target_disk, backup_partnum, logs_partnum, admin_iface, admin_bridge, admin_config):
 
         util.assertDir(os.path.join(mounts['root'], "var/lib/xcp"))
         util.assertDir(os.path.join(mounts['root'], "etc/xensource"))

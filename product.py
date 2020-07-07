@@ -69,19 +69,26 @@ class ExistingInstallation:
 
     def isUpgradeable(self):
         self.mount_state()
+        result = True
         try:
             # CA-38459: handle missing firstboot directory e.g. Rio
-            if not os.path.exists(self.join_state_path('etc/firstboot.d/state')):
-                return False
-            firstboot_files = [ f for f in os.listdir(self.join_state_path('etc/firstboot.d')) \
-                                if f[0].isdigit() and os.stat(self.join_state_path('etc/firstboot.d', f))[stat.ST_MODE] & stat.S_IXUSR ]
-            missing_state_files = filter(lambda x: not os.path.exists(self.join_state_path('etc/firstboot.d/state', x)), firstboot_files)
+            if os.path.exists(self.join_state_path('etc/firstboot.d/state')):
+                firstboot_files = [ f for f in os.listdir(self.join_state_path('etc/firstboot.d')) \
+                                    if f[0].isdigit() and os.stat(self.join_state_path('etc/firstboot.d', f))[stat.ST_MODE] & stat.S_IXUSR ]
+                missing_state_files = filter(lambda x: not os.path.exists(self.join_state_path('etc/firstboot.d/state', x)), firstboot_files)
 
-            result = (len(missing_state_files) == 0)
-            if not result:
-                logger.log('Upgradeability test failed:')
-                logger.log('  Firstboot:     '+', '.join(firstboot_files))
-                logger.log('  Missing state: '+', '.join(missing_state_files))
+                result = (len(missing_state_files) == 0)
+                if not result:
+                    logger.log('Upgradeability test failed:')
+                    logger.log('  Firstboot:     '+', '.join(firstboot_files))
+                    logger.log('  Missing state: '+', '.join(missing_state_files))
+            else:
+                for path in constants.INIT_SERVICE_FILES:
+                    if not os.path.exists(self.join_state_path(path)):
+                        result = False
+                        logger.log('Cannot upgrade, expected file missing: %s' % (path,))
+        except Exception:
+            result = False
         finally:
             self.unmount_state()
         return result

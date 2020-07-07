@@ -33,7 +33,9 @@ def restoreFromBackup(backup, progress=lambda x: ()):
     bootlabel = None
     disk = backup.root_disk
     tool = PartitionTool(disk)
-    _, boot_partnum, primary_partnum, backup_partnum, logs_partnum, swap_partnum, _ = backend.inspectTargetDisk(disk, None, [], constants.PRESERVE_IF_UTILITY, True, True)
+    _, _, _, storage, _ = diskutil.probeDisk(disk)
+    create_sr_part = storage[0] is not None
+    _, boot_partnum, primary_partnum, backup_partnum, logs_partnum, swap_partnum, _ = backend.inspectTargetDisk(disk, None, [], constants.PRESERVE_IF_UTILITY, create_sr_part, True)
 
     backup_fs = util.TempMount(backup.partition, 'backup-', options=['ro'])
     inventory = util.readKeyValueFile(os.path.join(backup_fs.mount_point, constants.INVENTORY_FILE), strip_quotes=True)
@@ -90,7 +92,13 @@ def restoreFromBackup(backup, progress=lambda x: ()):
 
         # mount restore partition:
         dest_fs = util.TempMount(restore_partition, 'restore-dest-')
+        efi_mounted = False
         try:
+            if efi_boot:
+                esp = os.path.join(dest_fs.mount_point, 'boot', 'efi')
+                os.makedirs(esp)
+                util.mount(boot_device, esp)
+                efi_mounted = True
 
             # copy files from the backup partition to the restore partition:
             objs = filter(lambda x: x not in ['lost+found', '.xen-backup-partition', '.xen-gpt.bin'],
@@ -134,7 +142,7 @@ def restoreFromBackup(backup, progress=lambda x: ()):
                 if efi_boot:
                     branding = util.readKeyValueFile(os.path.join(backup_fs.mount_point, constants.INVENTORY_FILE))
                     branding['product-brand'] = branding['PRODUCT_BRAND']
-                    backend.setEfiBootEntry(mounts, disk, boot_partnum, branding)
+                    backend.setEfiBootEntry(mounts, disk, boot_partnum, constants.INSTALL_TYPE_RESTORE, branding)
                 else:
                     if location == constants.BOOT_LOCATION_MBR:
                         backend.installGrub2(mounts, disk, False)
@@ -151,6 +159,8 @@ def restoreFromBackup(backup, progress=lambda x: ()):
             util.umount("%s/proc" % dest_fs.mount_point)
             util.umount("%s/sys" % dest_fs.mount_point)
             util.umount("%s/dev" % dest_fs.mount_point)
+            if efi_mounted:
+                util.umount(esp)
             dest_fs.unmount()
     finally:
         backup_fs.unmount()

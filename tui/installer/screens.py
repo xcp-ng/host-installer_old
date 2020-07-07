@@ -609,6 +609,8 @@ You may need to change your system settings to boot from this disk.""" % (MY_PRO
     if 'installation-to-overwrite' in answers:
         answers['target-is-sr'] = target_is_sr[answers['primary-disk']]
 
+    if button == 'back': return LEFT_BACKWARDS
+
     # Warn if not all of the disk is usable.
     # This can happen if we are unable to use GPT because we are currently
     # using DOS and need to preserve some utility partitions.
@@ -627,8 +629,17 @@ You may need to change your system settings to boot from this disk.""" % (MY_PRO
                                "The disk selected to install %s to is greater than %d GB.  The partitioning scheme is limited to this value and therefore the remainder of this disk will be unavailable." % (MY_PRODUCT_BRAND, constants.max_primary_disk_size_dos),
                                ['Ok'])
 
+    if constants.GPT_SUPPORT and constants.UEFI_INSTALLER and tool.partTableType != constants.PARTITION_GPT:
+        val = snackutil.ButtonChoiceWindowEx(tui.screen,
+                           "Invalid Partition Table",
+                           "UEFI boot requires the partition type to be GPT.  Would you like to re-initialize the disk?",
+                           ['Yes', 'No'], default=1)
+        if val == 'yes':
+            answers['preserve-first-partition'] = 'false'
+        else:
+            return LEFT_BACKWARDS if len(entries) == 1 else REPEAT_STEP
+
     if button is None: return SKIP_SCREEN
-    if button == 'back': return LEFT_BACKWARDS
 
     return RIGHT_FORWARDS
 
