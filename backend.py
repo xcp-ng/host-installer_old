@@ -182,6 +182,8 @@ def getFinalisationSequence(ans):
         Task(prepareSwapfile, A(ans, 'mounts', 'primary-disk', 'swap-partnum', 'disk-label-suffix'), []),
         Task(writeFstab, A(ans, 'mounts', 'target-boot-mode', 'primary-disk', 'logs-partnum', 'swap-partnum', 'disk-label-suffix'), []),
         Task(enableAgent, A(ans, 'mounts', 'network-backend', 'services'), []),
+        Task(configureCC, A(ans, 'mounts'), []),
+        Task(configureLogrotate, A(ans, 'mounts', 'primary-disk', 'logs-partnum'), []),
         Task(writeInventory, A(ans, 'installation-uuid', 'control-domain-uuid', 'mounts', 'primary-disk',
                                'backup-partnum', 'storage-partnum', 'guest-disks', 'net-admin-bridge',
                                'branding', 'net-admin-configuration', 'host-config', 'new-partition-layout', 'partition-table-type', 'install-type'), []),
@@ -532,9 +534,7 @@ def configureNTP(mounts, ntp_servers):
     util.runCmd2(['chroot', mounts['root'], 'systemctl', 'enable', 'chrony-wait'])
 
 def inspectTargetDisk(disk, existing, initial_partitions, preserve_first_partition, create_sr_part, create_new_partitions):
-
-    uefi_installer = os.path.exists("/sys/firmware/efi")
-    logger.log("Installer booted in %s mode" % ("UEFI" if uefi_installer else "legacy"))
+    logger.log("Installer booted in %s mode" % ("UEFI" if constants.UEFI_INSTALLER else "legacy"))
 
     if existing:
         # upgrade, use existing partitioning scheme
@@ -552,10 +552,10 @@ def inspectTargetDisk(disk, existing, initial_partitions, preserve_first_partiti
         else:
             boot_partnum = primary_part + 3
 
-        if (target_boot_mode == TARGET_BOOT_MODE_UEFI and not uefi_installer) or \
-                (target_boot_mode == TARGET_BOOT_MODE_LEGACY and uefi_installer):
+        if (target_boot_mode == TARGET_BOOT_MODE_UEFI and not constants.UEFI_INSTALLER) or \
+                (target_boot_mode == TARGET_BOOT_MODE_LEGACY and constants.UEFI_INSTALLER):
             raise RuntimeError("Installer mode (%s) is mismatched with target boot mode (%s)" %
-                               ("UEFI" if uefi_installer else "legacy", target_boot_mode))
+                               ("UEFI" if constants.UEFI_INSTALLER else "legacy", target_boot_mode))
 
         logger.log("Upgrading, target_boot_mode: %s" % target_boot_mode)
 
@@ -591,7 +591,7 @@ def inspectTargetDisk(disk, existing, initial_partitions, preserve_first_partiti
 
     boot_part = max(primary_part + 1, sr_part) + 1
 
-    target_boot_mode = TARGET_BOOT_MODE_UEFI if uefi_installer else TARGET_BOOT_MODE_LEGACY
+    target_boot_mode = TARGET_BOOT_MODE_UEFI if constants.UEFI_INSTALLER else TARGET_BOOT_MODE_LEGACY
 
     logger.log("Fresh install, target_boot_mode: %s" % target_boot_mode)
 
@@ -1123,7 +1123,7 @@ def buildBootLoaderMenu(mounts, xen_version, xen_kernel_version, boot_config, se
     common_xen_params = "dom0_mem=%dM,max:%dM" % ((host_config['dom0-mem'],) * 2)
     common_xen_unsafe_params = "watchdog ucode=scan dom0_max_vcpus=1-%d" % host_config['dom0-vcpus']
     safe_xen_params = ("nosmp noreboot noirqbalance no-mce no-bootscrub "
-                       "no-numa no-hap no-mmcfg iommu=off max_cstate=0 "
+                       "no-numa no-hap no-mmcfg max_cstate=0 "
                        "nmi=ignore allow_unsafe")
     xen_mem_params = "crashkernel=256M,below=4G"
 
@@ -1261,7 +1261,7 @@ def installBootLoader(mounts, disk, partition_table_type, boot_partnum, primary_
 def setEfiBootEntry(mounts, disk, boot_partnum, install_type, branding):
     def check_efibootmgr_err(rc, err, install_type, err_type):
         if rc != 0:
-            if install_type == INSTALL_TYPE_REINSTALL:
+            if install_type in (INSTALL_TYPE_REINSTALL, INSTALL_TYPE_RESTORE):
                 logger.error("%s: %s" % (err_type, err))
             else:
                 raise RuntimeError("%s: %s" % (err_type, err))
@@ -1448,13 +1448,6 @@ def writeFstab(mounts, target_boot_mode, primary_disk, logs_partnum, swap_partnu
     if logs_partition:
         fstab.write("LABEL=%s    /var/log         %s     defaults   0  2\n" % (logsfs_label%disk_label_suffix, logsfs_type))
 
-    # This should be removed when the packaging CARs are done
-    if logs_partition:
-        # partition therefore daily rotate
-        logrotate = open(os.path.join(mounts['root'], 'etc/sysconfig/logrotate'), "w")
-        logrotate.write("BUDGET_MB=4000")
-        logrotate.close()
-
 def enableAgent(mounts, network_backend, services):
     if network_backend == constants.NETWORK_BACKEND_VSWITCH:
         util.runCmd2(['chroot', mounts['root'],
@@ -1470,6 +1463,56 @@ def enableAgent(mounts, network_backend, services):
         action = 'disable' if constants.CC_PREPARATIONS and state is None else actMap.get(state)
         if action:
             util.runCmd2(['chroot', mounts['root'], 'systemctl', action, service + '.service'])
+
+def configureCC(mounts):
+    '''Tailor the installation for Common Criteria mode.'''
+
+    if not constants.CC_PREPARATIONS:
+        return
+
+    # Turn on SSL certificate verification.
+    open(os.path.join(mounts['root'], 'var/lib/xcp/verify_certificates'), 'wb').close()
+
+    if util.runCmd2(['chroot', mounts['root'],
+                     'systemctl', 'is-enabled', 'sshd.service']) == 0:
+        ssh_rule = '-A INPUT -i xenbr0 -p tcp -m tcp --dport 22 -m state --state NEW -j ACCEPT'
+    else:
+        ssh_rule = ''
+
+    with open(CC_FIREWALL_CONF, 'rb') as conf:
+        rules = conf.read()
+    with open(os.path.join(mounts['root'], 'etc', 'sysconfig', 'iptables'), 'wb') as out:
+        out.write(rules.replace('@SSH_RULE@', ssh_rule))
+
+    util.runCmd2(['chroot', mounts['root'], 'systemctl', 'disable', 'genptoken.service'])
+    util.runCmd2(['chroot', mounts['root'], 'systemctl', 'enable', 'genptoken-cc.service'])
+
+def configureLogrotate(mounts, primary_disk, logs_partnum):
+    '''Reconfigure logrotate if there is no logs partition.'''
+
+    def disable_job(path):
+        if os.path.exists(path):
+            os.rename(path, path + '~')
+
+    tool = PartitionTool(primary_disk)
+    logs_partition = tool.getPartition(logs_partnum)
+
+    if not logs_partition:
+        if os.path.exists(os.path.join(mounts['root'], 'etc/cron.d/logrotate.cron.rpmsave')):
+            os.rename(os.path.join(mounts['root'], 'etc/cron.d/logrotate.cron.rpmsave'),
+                      os.path.join(mounts['root'], 'etc/cron.d/logrotate.cron'))
+            disable_job(os.path.join(mounts['root'], 'etc/cron.daily/logrotate'))
+            disable_job(os.path.join(mounts['root'], 'etc/cron.d/xapi-logrotate.cron'))
+
+            with open(os.path.join(mounts['root'], 'etc/xensource/xapi-logrotate.conf'), 'rb') as in_conf:
+                with open(os.path.join(mounts['root'], 'etc/logrotate.d/xapi'), 'wb') as out_conf:
+                    match = False
+                    for line in in_conf:
+                        if line.startswith('/var/log/xensource.log {\n'):
+                            match = True
+                        if match:
+                            out_conf.write(line)
+            assert match
 
 def writeResolvConf(mounts, hn_conf, ns_conf):
     (manual_hostname, hostname) = hn_conf

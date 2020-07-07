@@ -1,0 +1,48 @@
+# Default firewall rules for Common Criteria security certification.
+
+*filter
+
+:INPUT DROP [0:0]
+:FORWARD DROP [0:0]
+:OUTPUT DROP [0:0]
+
+-A INPUT -i lo -j ACCEPT
+
+-A INPUT -i xenbr0 -p icmp -m icmp --icmp-type 8 -j ACCEPT
+-A INPUT -i xenbr0 -p tcp -m tcp --dport 443 -m state --state NEW -j ACCEPT
+@SSH_RULE@
+-A INPUT -i xenbr0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+-A INPUT -i xenbr0 -j DROP
+
+-A INPUT -i xenbr1 -p icmp -m icmp --icmp-type 8 -j ACCEPT
+-A INPUT -i xenbr1 -m state --state RELATED,ESTABLISHED -j ACCEPT
+-A INPUT -i xenbr1 -j DROP
+
+-A OUTPUT -o lo -j ACCEPT
+
+-A OUTPUT -o xenbr0 -p icmp -m icmp --icmp-type 8 -j ACCEPT
+-A OUTPUT -o xenbr0 -p tcp -m tcp --dport 443 -m state --state NEW -j ACCEPT
+-A OUTPUT -o xenbr0 -p tcp -m tcp --dport 22 -m state --state NEW -j ACCEPT
+-A OUTPUT -o xenbr0 -p tcp -m tcp --dport 7279 -m state --state NEW -j ACCEPT
+-A OUTPUT -o xenbr0 -p tcp -m tcp --dport 27000 -m state --state NEW -j ACCEPT
+-A OUTPUT -o xenbr0 -p udp -m udp --dport 123 -m state --state NEW -j ACCEPT
+-A OUTPUT -o xenbr0 -p tcp -m tcp --dport 53 -m state --state NEW -j ACCEPT
+-A OUTPUT -o xenbr0 -p udp -m udp --dport 53 -m state --state NEW -j ACCEPT
+-A OUTPUT -o xenbr0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+-A OUTPUT -o xenbr0 -j DROP
+
+-A OUTPUT -o xenbr1 -p icmp -m icmp --icmp-type 8 -j ACCEPT
+-A OUTPUT -o xenbr1 -p udp -m udp --dport 111 -m state --state NEW -j ACCEPT
+-A OUTPUT -o xenbr1 -p tcp -m tcp --dport 111 -m state --state NEW -j ACCEPT
+-A OUTPUT -o xenbr1 -p udp -m udp --dport 2049 -m state --state NEW -j ACCEPT
+-A OUTPUT -o xenbr1 -p tcp -m tcp --dport 2049 -m state --state NEW -j ACCEPT
+-A OUTPUT -o xenbr1 -p udp -m udp --dport 4045:4047 -m state --state NEW -j ACCEPT
+-A OUTPUT -o xenbr1 -p tcp -m tcp --dport 4045:4047 -m state --state NEW -j ACCEPT
+-A OUTPUT -o xenbr1 -p udp -m udp --dport 4049 -m state --state NEW -j ACCEPT
+-A OUTPUT -o xenbr1 -p tcp -m tcp --dport 4049 -m state --state NEW -j ACCEPT
+-A OUTPUT -o xenbr1 -p udp -m udp --dport 53 -m state --state NEW -j ACCEPT
+-A OUTPUT -o xenbr1 -p tcp -m tcp --dport 53 -m state --state NEW -j ACCEPT
+-A OUTPUT -o xenbr1 -m state --state RELATED,ESTABLISHED -j ACCEPT
+-A OUTPUT -o xenbr1 -j DROP
+
+COMMIT
