@@ -324,6 +324,10 @@ def performInstallation(answers, ui_package, interactive):
                                                          default_host_config['dom0-mem'])
                 default_host_config['dom0-vcpus'] = xcp.dom0.default_vcpus(hardware.getHostTotalCPUs(),
                                                                            answers['host-config']['dom0-mem'])
+
+            # Set scheduler granularity if necessary.
+            if 'sched-gran' in answers['host-config']:
+                default_host_config['sched-gran'] = answers['host-config']['sched-gran']
         except Exception as e:
             logger.logException(e)
             raise RuntimeError("Failed to get existing installation settings")
@@ -1121,6 +1125,8 @@ def prepFallback(mounts, primary_disk, primary_partnum):
 def buildBootLoaderMenu(mounts, xen_version, xen_kernel_version, boot_config, serial, boot_serial, host_config, primary_disk, disk_label_suffix, fcoe_interfaces):
     short_version = kernelShortVersion(xen_kernel_version)
     common_xen_params = "dom0_mem=%dM,max:%dM" % ((host_config['dom0-mem'],) * 2)
+    if "sched-gran" in host_config:
+        common_xen_params += " %s" % "sched-gran=toto"
     common_xen_unsafe_params = "watchdog ucode=scan dom0_max_vcpus=1-%d" % host_config['dom0-vcpus']
     safe_xen_params = ("nosmp noreboot noirqbalance no-mce no-bootscrub "
                        "no-numa no-hap no-mmcfg max_cstate=0 "
