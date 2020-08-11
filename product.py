@@ -385,6 +385,11 @@ class ExistingInstallation:
             (dom0_mem, dom0_mem_min, dom0_mem_max) = xcp.dom0.parse_mem(dom0_mem_arg[0])
             if dom0_mem:
                 results['host-config']['dom0-mem'] = dom0_mem / 1024 / 1024
+
+            #   - sched-gran
+            sched_gran = next((x for x in xen_args if x.startswith('sched-gran=')), None)
+            if sched_gran:
+                results['host-config']['sched-gran'] = sched_gran
         except:
             pass
         self.unmount_boot()
