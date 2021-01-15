@@ -48,26 +48,33 @@ class NetInterface:
             assert ipaddr
             assert netmask
 
-        self.mode = mode
+        ipv6 = ipaddr.find(':') > -1 if ipaddr else False
+
         self.hwaddr = hwaddr
-        if mode == self.Static:
-            self.ipaddr = ipaddr
-            self.netmask = netmask
-            self.gateway = gateway
-            self.dns = dns
-            self.domain = domain
-        else:
+        if ipv6:
+            self.mode = None
             self.ipaddr = None
             self.netmask = None
             self.gateway = None
             self.dns = None
             self.domain = None
-        self.vlan = vlan
 
-        # Initialise IPv6 to None.
-        self.modev6 = None
-        self.ipv6addr = None
-        self.ipv6_gateway = None
+            self.modev6 = mode
+            self.ipv6addr = ipaddr + "/" + netmask if mode == self.Static else None
+            self.ipv6_gateway = gateway if mode == self.Static else None
+        else:
+            self.modev6 = None
+            self.ipv6addr = None
+            self.ipv6_gateway = None
+
+            self.mode = mode
+            self.ipaddr = ipaddr if mode == self.Static else None
+            self.netmask = netmask if mode == self.Static else None
+            self.gateway = gateway if mode == self.Static else None
+            self.dns = dns if mode == self.Static else None
+            self.domain = domain if mode == self.Static else None
+
+        self.vlan = vlan
 
     def __repr__(self):
         hw = "hwaddr = '%s' " % self.hwaddr
@@ -132,7 +139,7 @@ class NetInterface:
 
     def isStatic(self):
         """ Returns true if a static interface configuration is represented. """
-        return self.mode == self.Static
+        return self.mode == self.Static or (self.mode == None and self.modev6 == self.Static)
 
     def isVlan(self):
         return self.vlan is not None
