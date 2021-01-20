@@ -1679,8 +1679,18 @@ def configureNetworking(mounts, admin_iface, admin_bridge, admin_config, hn_conf
     if admin_config.modev6:
         nfd.write("NETWORKING_IPV6=yes\n")
         util.runCmd2(['chroot', mounts['root'], 'systemctl', 'enable', 'ip6tables'])
+        for i in ['all', 'default']:
+            util.runCmd2(
+                ['chroot', mounts['root'], 'sed', '-i', ('/^%s /s/=.*$/= 0/' % ('net.ipv6.conf.%s.disable_ipv6' % i)),
+                "/etc/sysctl.d/90-net.conf"]
+            )
     else:
         nfd.write("NETWORKING_IPV6=no\n")
+        for i in ['all', 'default']:
+            util.runCmd2(
+                ['chroot', mounts['root'], 'sed', '-i', ('/^%s /s/=.*$/= 1/' % ('net.ipv6.conf.%s.disable_ipv6' % i)),
+                "/etc/sysctl.d/90-net.conf"]
+            )
         netutil.disable_ipv6_module(mounts["root"])
     nfd.write("IPV6_AUTOCONF=no\n")
     nfd.write('NTPSERVERARGS="iburst prefer"\n')
