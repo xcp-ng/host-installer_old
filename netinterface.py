@@ -71,9 +71,9 @@ class NetInterface:
             self.ipaddr = ipaddr if mode == self.Static else None
             self.netmask = netmask if mode == self.Static else None
             self.gateway = gateway if mode == self.Static else None
-            self.dns = dns if mode == self.Static else None
-            self.domain = domain if mode == self.Static else None
 
+        self.dns = dns if mode == self.Static else None
+        self.domain = domain if mode == self.Static else None
         self.vlan = vlan
 
     def __repr__(self):
