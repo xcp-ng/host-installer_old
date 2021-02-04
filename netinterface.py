@@ -56,8 +56,6 @@ class NetInterface:
             self.ipaddr = None
             self.netmask = None
             self.gateway = None
-            self.dns = None
-            self.domain = None
 
             self.modev6 = mode
             self.ipv6addr = ipaddr + "/" + netmask if mode == self.Static else None

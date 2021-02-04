@@ -303,6 +303,8 @@ def get_iface_configuration(nic, txt=None, defaults=None, include_dns=False):
             answers.modev6 = answers_ipv6.modev6
             answers.ipv6addr = answers_ipv6.ipv6addr
             answers.ipv6_gateway = answers_ipv6.ipv6_gateway
+            if answers_ipv6.dns != None:
+                answers.dns = answers_ipv6.dns if answers.dns == None else answers.dns + "," + answers_ipv6.dns
 
     return RIGHT_FORWARDS, answers
 
