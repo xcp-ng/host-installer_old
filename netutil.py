@@ -30,6 +30,8 @@ class NIC:
         self.driver = "%s (%s)" % (nic_dict.get("Driver", ""),
                                    nic_dict.get("Driver version", ""))
         self.smbioslabel = nic_dict.get("SMBIOS Label", "")
+        self.bond_mode = nic_dict.get("Bond mode", None)
+        self.bond_members = nic_dict.get("Bond mode", None)
 
     def __repr__(self):
         return "<NIC: %s (%s)>" % (self.name, self.hwaddr)

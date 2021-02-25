@@ -227,7 +227,17 @@ def get_admin_interface(answers):
 def get_admin_interface_configuration(answers):
     if 'net-admin-interface' not in answers:
         answers['net-admin-interface'] = answers['network-hardware'].keys()[0]
-    nic = answers['network-hardware'][answers['net-admin-interface']]
+
+    net_admin_interface = answers['net-admin-interface']
+    if type(net_admin_interface) == tuple:
+        # Bond case
+        members = net_admin_interface[1]
+        nic = answers['network-hardware'][members[0]]
+        nic.name = net_admin_interface[0]
+        nic.bond_members = members
+        nic.bond_mode = 'lacp'
+    else:
+        nic = answers['network-hardware'][net_admin_interface]
 
     defaults = None
     try:
@@ -236,7 +246,7 @@ def get_admin_interface_configuration(answers):
         elif 'runtime-iface-configuration' in answers:
             all_dhcp, manual_config = answers['runtime-iface-configuration']
             if not all_dhcp:
-                defaults = manual_config[answers['net-admin-interface']]
+                defaults = manual_config[net_admin_interface]
     except:
         pass
 

@@ -1636,6 +1636,10 @@ def configureNetworking(mounts, admin_iface, admin_bridge, admin_config, hn_conf
                 print >>mc, "IPv6_GATEWAY='%s'" % admin_config.ipv6_gateway
         if admin_config.vlan:
             print >>mc, "VLAN='%d'" % admin_config.vlan
+        if admin_config.bond_mode is not None:
+            print >>mc, "BOND_MODE='%d'" % admin_config.bond_mode
+            print >>mc, "BOND_MEMBERS='%d'" % str(admin_config.bond_members)
+
         mc.close()
 
     if preserve_settings:
