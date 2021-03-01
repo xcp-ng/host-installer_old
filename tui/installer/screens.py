@@ -236,6 +236,7 @@ def get_admin_interface_configuration(answers):
         nic.name = net_admin_interface[0]
         nic.bond_members = members
         nic.bond_mode = 'lacp'
+        answers['net-admin-interface'] = net_admin_interface[0]
     else:
         nic = answers['network-hardware'][net_admin_interface]
 

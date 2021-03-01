@@ -70,6 +70,8 @@ class NetInterface:
         self.ipv6_gateway = None
 
         if bond_mode is not None:
+            # Not `balance-slb` because it's openvswitch specific
+            assert bond_mode in ["lacp", "active-backup"]
             assert bond_members is not None
             self.bond_mode = bond_mode
             self.bond_members = bond_members
@@ -200,9 +202,10 @@ class NetInterface:
             f.write("Type=Bond\n")
             f.write("NOZEROCONF=yes\n")
             f.write("BONDING_MASTER=yes\n")
-            # TODO: more mode
             if self.bond_mode == "lacp":
                 f.write("BONDING_OPTS=\"mode=4 miimon=100\"\n")
+            elif self.bond_mode == "active-backup":
+                f.write("BONDING_OPTS=\"mode=1 miimon=100\"\n")
 
             if self.vlan:
                 f.write("BOOTPROTO=none\n")

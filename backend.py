@@ -1637,8 +1637,8 @@ def configureNetworking(mounts, admin_iface, admin_bridge, admin_config, hn_conf
         if admin_config.vlan:
             print >>mc, "VLAN='%d'" % admin_config.vlan
         if admin_config.bond_mode is not None:
-            print >>mc, "BOND_MODE='%d'" % admin_config.bond_mode
-            print >>mc, "BOND_MEMBERS='%d'" % str(admin_config.bond_members)
+            print >>mc, "BOND_MODE='%s'" % admin_config.bond_mode
+            print >>mc, "BOND_MEMBERS='%s'" % ','.join(admin_config.bond_members)
 
         mc.close()
 
