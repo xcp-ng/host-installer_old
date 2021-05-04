@@ -202,12 +202,12 @@ def get_iface_configuration(nic, txt=None, defaults=None, include_dns=False):
         vlan_field = Entry(25)
 
         if defaults:
-            if defaults.ipaddr:
-                ip_field.set(defaults.ipaddr)
-            if defaults.netmask:
-                subnet_field.set(defaults.netmask)
-            if defaults.gateway:
-                gateway_field.set(defaults.gateway)
+            if defaults.ipv6addr:
+                ip6addr, netmask = defaults.ipv6addr.split("/")
+                ip_field.set(ip6addr)
+                subnet_field.set(netmask)
+            if defaults.ipv6_gateway:
+                gateway_field.set(defaults.ipv6_gateway)
             if defaults.dns:
                 dns_field.set(defaults.dns[0])
 

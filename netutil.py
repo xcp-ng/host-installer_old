@@ -147,7 +147,11 @@ def interfaceUp(interface):
     if rc != 0:
         return False
     inets = filter(lambda x: x.startswith("    inet "), out.split("\n"))
-    return len(inets) == 1
+    if len(inets) == 1:
+        return True
+
+    inet6s = filter(lambda x: x.startswith("    inet6 "), out.split("\n"))
+    return len(inet6s) > 1  # Not just the fe80:: address
 
 # work out if a link is up:
 def linkUp(interface):
