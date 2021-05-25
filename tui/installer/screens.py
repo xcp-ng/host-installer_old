@@ -714,7 +714,8 @@ You may need to change your system settings to boot from this disk.""" % (MY_PRO
         else:
             return LEFT_BACKWARDS if len(entries) == 1 else REPEAT_STEP
 
-    if button is None: return SKIP_SCREEN
+    # XCP-ng: we replaced `SKIP_SCREEN` by `RIGHT_FORWARDS` for RAID support to avoid a loop after raid creation
+    if button is None: return RIGHT_FORWARDS
 
     # XCP-ng
     if button == 'software raid':
