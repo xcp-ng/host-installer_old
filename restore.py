@@ -145,7 +145,11 @@ def restoreFromBackup(backup, progress=lambda x: ()):
                     backend.setEfiBootEntry(mounts, disk, boot_partnum, constants.INSTALL_TYPE_RESTORE, branding)
                 else:
                     if location == constants.BOOT_LOCATION_MBR:
-                        backend.installGrub2(mounts, disk, False)
+                        if diskutil.is_raid(disk):
+                            for member in diskutil.getDeviceSlaves(disk):
+                                backend.installGrub2(mounts, member, False)
+                        else:
+                            backend.installGrub2(mounts, disk, False)
                     else:
                         backend.installGrub2(mounts, restore_partition, True)
             else:
