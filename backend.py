@@ -1289,6 +1289,11 @@ def setEfiBootEntry(mounts, disk, boot_partnum, install_type, branding):
                             "-d", disk, "-p", str(boot_partnum)], with_stderr=True)
     check_efibootmgr_err(rc, err, install_type, "Failed to run efibootmgr")
 
+    # Add fallback EFI boot files for some systems
+    util.runCmd2(["chroot", mounts['root'], "/usr/bin/mkdir", "-p" "/boot/efi/EFI/boot"])
+    util.runCmd2(["chroot", mounts['root'], "/usr/bin/cp", "/boot/efi/EFI/xenserver/gcdx64.efi", "/boot/efi/EFI/boot/bootx64.efi"])
+    util.runCmd2(["chroot", mounts['root'], "/usr/bin/cp", "/boot/efi/EFI/xenserver/grub.cfg", "/boot/efi/EFI/boot/grub.cfg"])
+
 def installGrub2(mounts, disk, force):
     if force:
         rc, err = util.runCmd2(["chroot", mounts['root'], "/usr/sbin/grub-install", "--target=i386-pc", "--force", disk], with_stderr=True)
