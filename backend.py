@@ -1289,7 +1289,7 @@ def setEfiBootEntry(mounts, disk, boot_partnum, install_type, branding):
                             "-d", disk, "-p", str(boot_partnum)], with_stderr=True)
     check_efibootmgr_err(rc, err, install_type, "Failed to run efibootmgr")
 
-    # Add fallback EFI boot files for some UEFI firmwares that do not follow the UEFI specs fully
+    # Add fallback for when all boot entries fail (buggy UEFI implementation, NVRAM error, user error in configuring boot entries, etc... could all cause this)
     util.runCmd2(["chroot", mounts['root'], "/usr/bin/mkdir", "-p" "/boot/efi/EFI/boot"])
     util.runCmd2(["chroot", mounts['root'], "/usr/bin/cp", "/boot/efi/EFI/xenserver/gcdx64.efi", "/boot/efi/EFI/boot/bootx64.efi"])
     util.runCmd2(["chroot", mounts['root'], "/usr/bin/cp", "/boot/efi/EFI/xenserver/grub.cfg", "/boot/efi/EFI/boot/grub.cfg"])
