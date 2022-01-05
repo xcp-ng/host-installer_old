@@ -421,11 +421,16 @@ class ThirdGenUpgrader(Upgrader):
         # CP-1508: preserve AD config
         self.restore_list += ['etc/resolv.conf', 'etc/krb5.conf', 'etc/krb5.keytab']
         self.restore_list.append({'dir': 'var/lib/likewise'})
+        self.restore_list.append({'dir': 'var/lib/samba'})
 
         # CP-12576: Integrate automatic upgrade tool from Likewise 5.4 to PBIS 8
         self.restore_list.append({'dir': 'var/lib/pbis', 're': re.compile(r'.*/krb5.+')})
         self.restore_list.append({'dir': 'var/lib/pbis', 're': re.compile(r'.*/.+\.xml')})
         self.restore_list.append({'dir': 'var/lib/pbis/db'})
+        # Above PBIS data already contains PBIS db
+        # Uncomment following lines when remove PBIS
+        # CP-35398: Integrate automatic upgrade tool from PBIS to winbind
+        # self.restore_list += ['var/lib/pbis/db/registry.db']
 
         # CA-47142: preserve v6 cache
         self.restore_list += [{'src': 'var/xapi/lpe-cache', 'dst': 'var/lib/xcp/lpe-cache'}]
@@ -486,7 +491,7 @@ class ThirdGenUpgrader(Upgrader):
                           os.path.join(mounts['root'], 'etc/sysconfig/network-scripts/interface-rename-data/static-rules.conf')])
 
         net_dict = util.readKeyValueFile(os.path.join(mounts['root'], 'etc/sysconfig/network'))
-        if 'NETWORKING_IPV6' not in net_dict:
+        if net_dict.get('NETWORKING_IPV6', 'no') == 'no':
             nfd = open(os.path.join(mounts['root'], 'etc/sysconfig/network'), 'a')
             nfd.write("NETWORKING_IPV6=no\n")
             nfd.close()
