@@ -1638,6 +1638,12 @@ def configureNetworking(mounts, admin_iface, admin_bridge, admin_config, hn_conf
             print >>mc, "VLAN='%d'" % admin_config.vlan
         mc.close()
 
+    if network_backend == constants.NETWORK_BACKEND_VSWITCH:
+        # CA-51684: blacklist bridge module
+        bfd = open("%s/etc/modprobe.d/blacklist-bridge.conf" % mounts["root"], "w")
+        bfd.write("install bridge /bin/true\n")
+        bfd.close()
+
     if preserve_settings:
         return
 
@@ -1679,12 +1685,6 @@ def configureNetworking(mounts, admin_iface, admin_bridge, admin_config, hn_conf
     nfd.write("IPV6_AUTOCONF=no\n")
     nfd.write('NTPSERVERARGS="iburst prefer"\n')
     nfd.close()
-
-    if network_backend == constants.NETWORK_BACKEND_VSWITCH:
-        # CA-51684: blacklist bridge module
-        bfd = open("%s/etc/modprobe.d/blacklist-bridge.conf" % mounts["root"], "w")
-        bfd.write("install bridge /bin/true\n")
-        bfd.close()
 
     # EA-1069 - write static-rules.conf and dynamic-rules.conf
     if not os.path.exists(os.path.join(mounts['root'], 'etc/sysconfig/network-scripts/interface-rename-data/.from_install/')):
