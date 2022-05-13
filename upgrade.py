@@ -500,7 +500,7 @@ class ThirdGenUpgrader(Upgrader):
             # Enable IPV6
             ipv6_conf = open("%s/etc/sysctl.d/91-net-ipv6.conf" % mounts["root"], "w")
             for i in ['all', 'default']:
-                ipv6_conf.write('net.ipv6.conf.%s.disable_ipv6=0\n')
+                ipv6_conf.write('net.ipv6.conf.%s.disable_ipv6=0\n' % i)
             ipv6_conf.close()
 
         # handle the conversion of devices from aacraid to smartpqi
