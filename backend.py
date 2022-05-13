@@ -1681,11 +1681,11 @@ def configureNetworking(mounts, admin_iface, admin_bridge, admin_config, hn_conf
         nfd.write("NETWORKING_IPV6=yes\n")
         util.runCmd2(['chroot', mounts['root'], 'systemctl', 'enable', 'ip6tables'])
         for i in ['all', 'default']:
-            ipv6_conf.write('net.ipv6.conf.%s.disable_ipv6=0')
+            ipv6_conf.write('net.ipv6.conf.%s.disable_ipv6=0\n')
     else:
         nfd.write("NETWORKING_IPV6=no\n")
         for i in ['all', 'default']:
-            ipv6_conf.write('net.ipv6.conf.%s.disable_ipv6=1')
+            ipv6_conf.write('net.ipv6.conf.%s.disable_ipv6=1\n')
         netutil.disable_ipv6_module(mounts["root"])
     ipv6_conf.close()
     nfd.write("IPV6_AUTOCONF=no\n")
