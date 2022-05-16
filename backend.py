@@ -1625,15 +1625,16 @@ def configureNetworking(mounts, admin_iface, admin_bridge, admin_config, hn_conf
             print >>mc, "NETMASK='%s'" % admin_config.netmask
             if admin_config.gateway:
                 print >>mc, "GATEWAY='%s'" % admin_config.gateway
-            if manual_nameservers:
-                print >>mc, "DNS='%s'" % (','.join(nameservers),)
-            if domain:
-                print >>mc, "DOMAIN='%s'" % domain
         print >>mc, "MODEV6='%s'" % netinterface.NetInterface.getModeStr(admin_config.modev6)
         if admin_config.modev6 == netinterface.NetInterface.Static:
             print >>mc, "IPv6='%s'" % admin_config.ipv6addr
             if admin_config.ipv6_gateway:
                 print >>mc, "IPv6_GATEWAY='%s'" % admin_config.ipv6_gateway
+        if admin_config.isStatic():
+            if manual_nameservers:
+                print >>mc, "DNS='%s'" % (','.join(nameservers),)
+            if domain:
+                print >>mc, "DOMAIN='%s'" % domain
         if admin_config.vlan:
             print >>mc, "VLAN='%d'" % admin_config.vlan
         mc.close()
