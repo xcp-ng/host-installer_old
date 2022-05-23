@@ -19,6 +19,7 @@ import netutil
 from netinterface import *
 import version
 import os
+import time
 
 from snack import *
 
@@ -492,9 +493,12 @@ def requireNetworking(answers, defaults=None, msg=None, keys=['net-admin-interfa
             )
         ifaceName = conf_dict['config'].getInterfaceName(conf_dict['interface'])
         netutil.ifdown(ifaceName)
+        ifup_error = netutil.ifup(ifaceName) != 0
+        if conf_dict['config'].modev6 == NetInterface.Autoconf:
+            time.sleep(2)
 
         # check that we have *some* network:
-        if netutil.ifup(ifaceName) != 0 or not netutil.interfaceUp(ifaceName):
+        if ifup_error or not netutil.interfaceUp(ifaceName):
             tui.progress.clearModelessDialog()
             tui.progress.OKDialog("Networking", "The network still does not appear to be active.  Please check your settings, and try again.")
             direction = REPEAT_STEP
