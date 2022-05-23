@@ -86,7 +86,7 @@ def get_iface_configuration(nic, txt=None, defaults=None, include_dns=False):
         dns_field = Entry(16)
         vlan_field = Entry(16)
 
-        if defaults and defaults.isStatic():
+        if defaults and defaults.mode == NetInterface.Static:
             # static configuration defined previously
             dhcp_rb = SingleRadioButton("Automatic configuration (DHCP)", None, 0)
             dhcp_rb.setCallback(dhcp_change, ())
@@ -206,7 +206,7 @@ def get_iface_configuration(nic, txt=None, defaults=None, include_dns=False):
         dns_field = Entry(25)
         vlan_field = Entry(25)
 
-        if defaults and defaults.isStatic():
+        if defaults and defaults.modev6 == NetInterface.Static:
             # static configuration defined previously
             dhcp_rb = SingleRadioButton("Automatic configuration (DHCP)", None, 0)
             dhcp_rb.setCallback(dhcp_change, ())

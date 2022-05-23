@@ -137,6 +137,9 @@ class NetInterface:
         """ Returns true if a static interface configuration is represented. """
         return self.mode == self.Static or (self.mode == None and self.modev6 == self.Static)
 
+    def isDHCP(self):
+        return self.mode == self.DHCP or (self.mode == None and self.modev6 == self.DHCP)
+
     def isVlan(self):
         return self.vlan is not None
 
