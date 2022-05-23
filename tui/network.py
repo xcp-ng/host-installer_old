@@ -33,7 +33,7 @@ def get_iface_configuration(nic, txt=None, defaults=None, include_dns=False):
 
         # IPv4 by default
         ipv4_rb = SingleRadioButton("IPv4", None, 1)
-        ipv6_rb = SingleRadioButton("IPv6 (Static only)", ipv4_rb, 0)
+        ipv6_rb = SingleRadioButton("IPv6", ipv4_rb, 0)
         dual_rb = SingleRadioButton("Dual stack (IPv4 primary)", ipv6_rb, 0)
 
         gf.add(text, 0, 0, padding=(0, 0, 0, 1))
@@ -185,10 +185,14 @@ def get_iface_configuration(nic, txt=None, defaults=None, include_dns=False):
         return RIGHT_FORWARDS, answers
 
     def get_ipv6_configuration(nic, txt, defaults, include_dns):
+        def dhcp_change():
+            for x in [ ip_field, gateway_field, subnet_field, dns_field ]:
+                x.setFlags(FLAG_DISABLED, static_rb.selected())
+
         def use_vlan_cb_change():
             vlan_field.setFlags(FLAG_DISABLED, vlan_cb.value())
 
-        gf = GridFormHelp(tui.screen, 'Networking', 'ifconfigv6', 1, 8)
+        gf = GridFormHelp(tui.screen, 'Networking', 'ifconfigv6', 1, 10)
         if txt is None:
             txt = "Configuration for %s (%s)" % (nic.name, nic.hwaddr)
         text = TextboxReflowed(45, txt)
@@ -201,15 +205,34 @@ def get_iface_configuration(nic, txt=None, defaults=None, include_dns=False):
         dns_field = Entry(25)
         vlan_field = Entry(25)
 
-        if defaults:
-            if defaults.ipv6addr:
-                ip6addr, netmask = defaults.ipv6addr.split("/")
-                ip_field.set(ip6addr)
-                subnet_field.set(netmask)
-            if defaults.ipv6_gateway:
-                gateway_field.set(defaults.ipv6_gateway)
-            if defaults.dns:
-                dns_field.set(defaults.dns[0])
+        if defaults and defaults.isStatic():
+            # static configuration defined previously
+            dhcp_rb = SingleRadioButton("Automatic configuration (DHCP)", None, 0)
+            dhcp_rb.setCallback(dhcp_change, ())
+            autoconf_rb = SingleRadioButton("Automatic configuration (Autoconf)", dhcp_rb, 0)
+            autoconf_rb.setCallback(dhcp_change, ())
+            static_rb = SingleRadioButton("Static configuration:", autoconf_rb, 1)
+            static_rb.setCallback(dhcp_change, ())
+            if defaults:
+                if defaults.ipv6addr:
+                    ip6addr, netmask = defaults.ipv6addr.split("/")
+                    ip_field.set(ip6addr)
+                    subnet_field.set(netmask)
+                if defaults.ipv6_gateway:
+                    gateway_field.set(defaults.ipv6_gateway)
+                if defaults.dns:
+                    dns_field.set(defaults.dns[0])
+        else:
+            dhcp_rb = SingleRadioButton("Automatic configuration (DHCP)", None, 1)
+            dhcp_rb.setCallback(dhcp_change, ())
+            autoconf_rb = SingleRadioButton("Automatic configuration (Autoconf)", dhcp_rb, 0)
+            autoconf_rb.setCallback(dhcp_change, ())
+            static_rb = SingleRadioButton("Static configuration:", autoconf_rb, 0)
+            static_rb.setCallback(dhcp_change, ())
+            ip_field.setFlags(FLAG_DISABLED, False)
+            subnet_field.setFlags(FLAG_DISABLED, False)
+            gateway_field.setFlags(FLAG_DISABLED, False)
+            dns_field.setFlags(FLAG_DISABLED, False)
 
         vlan_cb = Checkbox("Use VLAN:", defaults.isVlan() if defaults else False)
         vlan_cb.setCallback(use_vlan_cb_change, ())
@@ -240,10 +263,13 @@ def get_iface_configuration(nic, txt=None, defaults=None, include_dns=False):
         vlan_grid.setField(vlan_field, 1, 0)
 
         gf.add(text, 0, 0, padding=(0, 0, 0, 1))
-        gf.add(entry_grid, 0, 2, padding=(0, 0, 0, 1))
-        gf.add(vlan_cb, 0, 3, anchorLeft=True)
-        gf.add(vlan_grid, 0, 4, padding=(0, 0, 0, 1))
-        gf.add(buttons, 0, 5, growx=1)
+        gf.add(dhcp_rb, 0, 2, anchorLeft=True)
+        gf.add(autoconf_rb, 0, 3, anchorLeft=True)
+        gf.add(static_rb, 0, 4, anchorLeft=True)
+        gf.add(entry_grid, 0, 5, padding=(0, 0, 0, 1))
+        gf.add(vlan_cb, 0, 6, anchorLeft=True)
+        gf.add(vlan_grid, 0, 7, padding=(0, 0, 0, 1))
+        gf.add(buttons, 0, 8, growx=1)
 
         loop = True
         while loop:
@@ -252,15 +278,16 @@ def get_iface_configuration(nic, txt=None, defaults=None, include_dns=False):
             if buttons.buttonPressed(result) in ['ok', None]:
                 # validate input
                 msg = ''
-                subnet_value = int(subnet_field.value())
-                if not netutil.valid_ip_addr(ip_field.value()):
-                    msg = 'IPv6 Address'
-                elif subnet_value > 128 or subnet_value < 4:
-                    msg = 'CIDR'
-                elif gateway_field.value() != '' and not netutil.valid_ip_addr(gateway_field.value()):
-                    msg = 'Gateway'
-                elif dns_field.value() != '' and not netutil.valid_ip_addr(dns_field.value()):
-                    msg = 'Nameserver'
+                if static_rb.selected():
+                    subnet_value = int(subnet_field.value())
+                    if not netutil.valid_ip_addr(ip_field.value()):
+                        msg = 'IPv6 Address'
+                    elif subnet_value > 128 or subnet_value < 4:
+                        msg = 'CIDR'
+                    elif gateway_field.value() != '' and not netutil.valid_ip_addr(gateway_field.value()):
+                        msg = 'Gateway'
+                    elif dns_field.value() != '' and not netutil.valid_ip_addr(dns_field.value()):
+                        msg = 'Nameserver'
                 if vlan_cb.selected():
                     if not netutil.valid_vlan(vlan_field.value()):
                         msg = 'VLAN'
@@ -276,9 +303,14 @@ def get_iface_configuration(nic, txt=None, defaults=None, include_dns=False):
         if buttons.buttonPressed(result) == 'back': return LEFT_BACKWARDS, None
 
         vlan_value = int(vlan_field.value()) if vlan_cb.selected() else None
-        answers = NetInterface(NetInterface.Static, nic.hwaddr, ip_field.value(),
+        if bool(dhcp_rb.selected()):
+            answers = NetInterface(NetInterface.DHCP, nic.hwaddr, vlan=vlan_value, ipv6=True)
+        elif bool(autoconf_rb.selected()):
+            answers = NetInterface(NetInterface.Autoconf, nic.hwaddr, vlan=vlan_value, ipv6=True)
+        else:
+            answers = NetInterface(NetInterface.Static, nic.hwaddr, ip_field.value(),
                             subnet_field.value(), gateway_field.value(),
-                            dns_field.value(), vlan=vlan_value)
+                            dns_field.value(), vlan=vlan_value, ipv6=True)
 
         return RIGHT_FORWARDS, answers
 

@@ -32,8 +32,8 @@ class NetInterface:
     Autoconf = 3
 
     def __init__(self, mode, hwaddr, ipaddr=None, netmask=None, gateway=None,
-                 dns=None, domain=None, vlan=None):
-        assert mode is None or mode == self.Static or mode == self.DHCP
+                 dns=None, domain=None, vlan=None, ipv6=False):
+        assert mode in [None, self.Static, self.DHCP, self.Autoconf]
         if ipaddr == '':
             ipaddr = None
         if netmask == '':
@@ -47,8 +47,6 @@ class NetInterface:
         if mode == self.Static:
             assert ipaddr
             assert netmask
-
-        ipv6 = ipaddr.find(':') > -1 if ipaddr else False
 
         self.hwaddr = hwaddr
         if ipv6:
@@ -174,6 +172,8 @@ class NetInterface:
 
         if self.modev6 == self.DHCP:
             f.write("iface %s inet6 dhcp\n" % iface_vlan)
+        if self.modev6 == self.Autoconf:
+            f.write("iface %s inet6 auto\n" % iface_vlan)
         elif self.modev6 == self.Static:
             f.write("iface %s inet6 static\n" % iface_vlan)
             f.write("   address %s\n" % self.ipv6addr)
@@ -209,7 +209,7 @@ class NetInterface:
         if self.modev6:
             f.write("NETWORKING_IPV6=yes\n")
             f.write("IPV6INIT=yes\n")
-            f.write("IPV6_AUTOCONF=no\n")
+            f.write("IPV6_AUTOCONF=yes\n" if self.modev6 == self.Autoconf else "IPV6_AUTOCONF=no\n")
         if self.modev6 == self.DHCP:
             f.write("DHCPV6C=yes\n")
         elif self.modev6 == self.Static:
