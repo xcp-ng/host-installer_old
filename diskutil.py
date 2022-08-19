@@ -409,7 +409,9 @@ def getHumanDiskName(disk):
         name = getMdDeviceName(disk)
         # mdadm may append an _ followed by a number (e.g. d0_0) to prevent
         # name collisions. Strip it if necessary.
-        name = re.match("([^_]*)(_\d+)?$", name).group(1)
+        m = re.match("([^_]*)(_\d+)?$", name)
+        if m:
+            name = m.group(1)
         return 'RAID: %s(%s)' % (name, ','.join(map(lambda dev: dev[5:],
                                                     getDeviceSlaves(disk))))
 
